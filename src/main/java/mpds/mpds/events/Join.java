@@ -42,7 +42,7 @@ public class Join {
                         broken.remove(player.getUuid());
 
                         playSound(player, BLOCK_GLASS_BREAK);
-                        player.getWorld().playSound(null, player.getBlockPos(), BLOCK_GLASS_BREAK, SoundCategory.PLAYERS, 1f, 1f);
+                        player.playSound(BLOCK_GLASS_BREAK, 1f, 1f);
 
                         return;
                     }

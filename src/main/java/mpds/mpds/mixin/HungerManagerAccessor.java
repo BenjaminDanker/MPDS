@@ -1,6 +1,5 @@
 package mpds.mpds.mixin;
 
-
 import net.minecraft.entity.player.HungerManager;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
@@ -10,6 +9,12 @@ public interface HungerManagerAccessor {
     @Accessor("foodTickTimer")
     void setFoodTickTimer(int foodTickTimer);
 
-    @Accessor
+    @Accessor("foodTickTimer")
     int getFoodTickTimer();
+
+    @Accessor("exhaustion")
+    void setExhaustion(float exhaustion);
+
+    @Accessor("exhaustion")
+    float getExhaustion();
 }

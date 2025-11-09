@@ -199,6 +199,6 @@ public class MPDS implements ModInitializer {
     }
 
     public static void playSound(ServerPlayerEntity player, SoundEvent event) {
-        player.networkHandler.sendPacket(new PlaySoundS2CPacket(Registries.SOUND_EVENT.getEntry(event), SoundCategory.PLAYERS, player.getX(), player.getY(), player.getZ(), 1f, 1f, Random.createThreadSafe().nextLong()));
+        player.playSoundToPlayer(event, SoundCategory.PLAYERS, 1f, 1f);
     }
 }
