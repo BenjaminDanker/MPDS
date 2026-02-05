@@ -3,7 +3,6 @@ package mpds.mpds;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 import mpds.mpds.mixin.HungerManagerAccessor;
-import mpds.mpds.util.SpecialDragonBreathHelper;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.inventory.EnderChestInventory;
 import net.minecraft.item.ItemStack;
@@ -91,8 +90,6 @@ public class sqlPlayer {
 
         if (SEf && !"".equals(resultSet.getString("effects")))
             List.of(resultSet.getString("effects").split("&")).forEach(compound -> player.addStatusEffect(StatusEffectInstance.CODEC.parse(wrappedOps, JsonParser.parseString(compound)).resultOrPartial(LOGGER::error).orElseThrow()));
-
-        SpecialDragonBreathHelper.purgeExtraSpecialDragonBreath(player, "sqlToPlayer");
     }
 
     public sqlPlayer(ServerPlayerEntity player) {
