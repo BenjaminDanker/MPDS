@@ -105,10 +105,6 @@ public class Join {
                     return;
                 } catch (CommunicationsException ignored) {
                 } catch (Exception e) {
-                    player.getInventory().clear();
-                    player.getEnderChestInventory().clear();
-                    player.clearStatusEffects();
-
                     if (AEM)
                         player.sendMessage(Text.translatable("THERE WERE SOME ERRORS WHEN LOAD " + playerN + "'s DATA! : \n" + e.getMessage()).formatted(Formatting.RED));
                     LOGGER.error("THERE WERE SOME ERRORS WHEN LOAD {}'s DATA!:", playerN);

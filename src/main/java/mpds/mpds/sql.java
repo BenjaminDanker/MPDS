@@ -27,6 +27,18 @@ public class sql {
 
     public static PreparedStatement updateskip;
 
+    public static PreparedStatement ensureRow;
+
+    public static PreparedStatement adjustSoulboundMax;
+
+    public static PreparedStatement setSkyIslandDefeated;
+
+    public static PreparedStatement setDesertDefeated;
+
+    public static PreparedStatement setOceanDefeated;
+
+    public static PreparedStatement setCaveDefeated;
+
     public static void init() throws SQLException {
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
@@ -38,7 +50,7 @@ public class sql {
 
         showskip = connection.prepareStatement("SELECT * FROM skipplayer");
 
-        updateskip = connection.prepareStatement("INSERT INTO skipplayer (Name, skip) VALUES (?, ?) AS new ON DUPLICATE KEY UPDATE Name=new.Name, skip=new.skip");
+        updateskip = connection.prepareStatement("INSERT INTO skipplayer (Name, skip) VALUES (?, ?) ON DUPLICATE KEY UPDATE Name=VALUES(Name), skip=VALUES(skip)");
 
         checkskip = connection.prepareStatement("SELECT skip FROM skipplayer WHERE Name = ?");
 
@@ -55,24 +67,24 @@ public class sql {
         setserver = connection.prepareStatement("UPDATE " + TABLE_NAME + " SET server=\"" + ServerName + "\" WHERE uuid = ?");
 
         disconnect = connection.prepareStatement("INSERT INTO " + TABLE_NAME +
-                " (Name, uuid, Air, Health, enderChestInventory, exhaustion, foodLevel, saturationLevel, foodTickTimer, main, off, armor, selectedSlot, experienceLevel, experienceProgress, effects, sync) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \"true\") AS new " +
-                "ON DUPLICATE KEY UPDATE " +
-                "Air=new.Air," +
-                "Health=new.Health," +
-                "enderChestInventory=new.enderChestInventory," +
-                "exhaustion=new.exhaustion," +
-                "foodLevel=new.foodLevel," +
-                "saturationLevel=new.saturationLevel," +
-                "foodTickTimer=new.foodTickTimer," +
-                "main=new.main," +
-                "off=new.off," +
-                "armor=new.armor," +
-                "selectedSlot=new.selectedSlot," +
-                "experienceLevel=new.experienceLevel," +
-                "experienceProgress=new.experienceProgress," +
-                "effects=new.effects," +
-                "sync=new.sync");
+            " (Name, uuid, Air, Health, enderChestInventory, exhaustion, foodLevel, saturationLevel, foodTickTimer, main, off, armor, selectedSlot, experienceLevel, experienceProgress, effects, sync) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \"true\") " +
+            "ON DUPLICATE KEY UPDATE " +
+            "Air=VALUES(Air)," +
+            "Health=VALUES(Health)," +
+            "enderChestInventory=VALUES(enderChestInventory)," +
+            "exhaustion=VALUES(exhaustion)," +
+            "foodLevel=VALUES(foodLevel)," +
+            "saturationLevel=VALUES(saturationLevel)," +
+            "foodTickTimer=VALUES(foodTickTimer)," +
+            "main=VALUES(main)," +
+            "off=VALUES(off)," +
+            "armor=VALUES(armor)," +
+            "selectedSlot=VALUES(selectedSlot)," +
+            "experienceLevel=VALUES(experienceLevel)," +
+            "experienceProgress=VALUES(experienceProgress)," +
+            "effects=VALUES(effects)," +
+            "sync=VALUES(sync)");
 
         Statement statement = connection.createStatement();
 
@@ -95,9 +107,52 @@ public class sql {
                         "experienceLevel int," +
                         "experienceProgress float," +
                         "effects longtext," +
+                        "CraftedSoulboundMax int NOT NULL DEFAULT 0," +
+                        "SkyIslandDefeated boolean NOT NULL DEFAULT false," +
+                        "DesertDefeated boolean NOT NULL DEFAULT false," +
+                        "OceanDefeated boolean NOT NULL DEFAULT false," +
+                        "CaveDefeated boolean NOT NULL DEFAULT false," +
                         "sync char(5)," +
                         "server text" +
                         ")");
+
+        // Safe migrations for existing tables. Ignore "duplicate column" errors.
+        try {
+            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN CraftedSoulboundMax int NOT NULL DEFAULT 0");
+        } catch (SQLException ignored) {
+        }
+        try {
+            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN SkyIslandDefeated boolean NOT NULL DEFAULT false");
+        } catch (SQLException ignored) {
+        }
+        try {
+            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN DesertDefeated boolean NOT NULL DEFAULT false");
+        } catch (SQLException ignored) {
+        }
+        try {
+            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN OceanDefeated boolean NOT NULL DEFAULT false");
+        } catch (SQLException ignored) {
+        }
+        try {
+            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN CaveDefeated boolean NOT NULL DEFAULT false");
+        } catch (SQLException ignored) {
+        }
+
+        ensureRow = connection.prepareStatement(
+            "INSERT INTO " + TABLE_NAME + " (Name, uuid, sync, server) VALUES (?, ?, \"true\", \"*\") " +
+                "ON DUPLICATE KEY UPDATE Name=VALUES(Name)");
+
+        adjustSoulboundMax = connection.prepareStatement(
+            "UPDATE " + TABLE_NAME + " SET CraftedSoulboundMax = GREATEST(0, IFNULL(CraftedSoulboundMax, 0) + ?) WHERE uuid = ?");
+
+        setSkyIslandDefeated = connection.prepareStatement(
+            "UPDATE " + TABLE_NAME + " SET SkyIslandDefeated = ? WHERE uuid = ?");
+        setDesertDefeated = connection.prepareStatement(
+            "UPDATE " + TABLE_NAME + " SET DesertDefeated = ? WHERE uuid = ?");
+        setOceanDefeated = connection.prepareStatement(
+            "UPDATE " + TABLE_NAME + " SET OceanDefeated = ? WHERE uuid = ?");
+        setCaveDefeated = connection.prepareStatement(
+            "UPDATE " + TABLE_NAME + " SET CaveDefeated = ? WHERE uuid = ?");
 
         statement.execute
                 ("CREATE TABLE IF NOT EXISTS skipplayer(" +
@@ -161,6 +216,47 @@ public class sql {
         disconnect.setFloat(15, player.experienceProgress);
         disconnect.setString(16, player.effects);
         disconnect.executeUpdate();
+    }
+
+    public static void ensureRow(String name, String uuid) throws SQLException {
+        ensureRow.setString(1, name);
+        ensureRow.setString(2, uuid);
+        ensureRow.executeUpdate();
+    }
+
+    public static void adjustSoulboundMax(String name, String uuid, int delta) throws SQLException {
+        ensureRow(name, uuid);
+        adjustSoulboundMax.setInt(1, delta);
+        adjustSoulboundMax.setString(2, uuid);
+        adjustSoulboundMax.executeUpdate();
+    }
+
+    public static void setSkyIslandDefeated(String name, String uuid, boolean value) throws SQLException {
+        ensureRow(name, uuid);
+        setSkyIslandDefeated.setBoolean(1, value);
+        setSkyIslandDefeated.setString(2, uuid);
+        setSkyIslandDefeated.executeUpdate();
+    }
+
+    public static void setDesertDefeated(String name, String uuid, boolean value) throws SQLException {
+        ensureRow(name, uuid);
+        setDesertDefeated.setBoolean(1, value);
+        setDesertDefeated.setString(2, uuid);
+        setDesertDefeated.executeUpdate();
+    }
+
+    public static void setOceanDefeated(String name, String uuid, boolean value) throws SQLException {
+        ensureRow(name, uuid);
+        setOceanDefeated.setBoolean(1, value);
+        setOceanDefeated.setString(2, uuid);
+        setOceanDefeated.executeUpdate();
+    }
+
+    public static void setCaveDefeated(String name, String uuid, boolean value) throws SQLException {
+        ensureRow(name, uuid);
+        setCaveDefeated.setBoolean(1, value);
+        setCaveDefeated.setString(2, uuid);
+        setCaveDefeated.executeUpdate();
     }
 
     public static void close() throws SQLException {

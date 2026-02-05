@@ -4,11 +4,13 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.brigadier.arguments.BoolArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.serialization.JsonOps;
 import com.mysql.cj.jdbc.exceptions.CommunicationsException;
 import mpds.mpds.events.Disconnect;
 import mpds.mpds.events.Join;
+import net.minecraft.command.argument.EntityArgumentType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -184,6 +186,73 @@ public class MPDS implements ModInitializer {
                             }
                         })
                 ));
+
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(
+                literal("mpdsdefeated")
+                    .requires(source -> source.hasPermissionLevel(2))
+                    .then(argument("player", EntityArgumentType.player())
+                        .then(argument("flag", StringArgumentType.word())
+                            .then(argument("value", BoolArgumentType.bool())
+                                .executes(ctx -> {
+                                    ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                    String flag = StringArgumentType.getString(ctx, "flag");
+                                    boolean value = BoolArgumentType.getBool(ctx, "value");
+
+                                    String name = target.getName().getString();
+                                    String uuid = target.getUuidAsString();
+
+                                    try {
+                                        switch (flag.toLowerCase(Locale.ROOT)) {
+                                            case "skyisland", "skyislanddefeated" -> sql.setSkyIslandDefeated(name, uuid, value);
+                                            case "desert", "desertdefeated" -> sql.setDesertDefeated(name, uuid, value);
+                                            case "ocean", "oceandefeated" -> sql.setOceanDefeated(name, uuid, value);
+                                            case "cave", "cavedefeated" -> sql.setCaveDefeated(name, uuid, value);
+                                            default -> {
+                                                ctx.getSource().sendMessage(Text.literal(
+                                                    "Unknown flag. Use: SkyIslandDefeated, DesertDefeated, OceanDefeated, CaveDefeated"));
+                                                return 0;
+                                            }
+                                        }
+
+                                        ctx.getSource().sendMessage(Text.literal(
+                                            "Set " + name + " " + flag + " = " + value));
+                                        return 1;
+                                    } catch (Exception e) {
+                                        ctx.getSource().sendMessage(Text.literal("Error updating flag: " + e.getMessage()).formatted(Formatting.RED));
+                                        LOGGER.error("Error updating defeated flag {} for {}", flag, name, e);
+                                        return 0;
+                                    }
+                                }))))
+            )
+        );
+
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(
+                literal("mpdssoulboundmax")
+                    .requires(source -> source.hasPermissionLevel(2))
+                    .then(argument("player", EntityArgumentType.player())
+                        .then(argument("delta", IntegerArgumentType.integer())
+                            .executes(ctx -> {
+                                ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                int delta = IntegerArgumentType.getInteger(ctx, "delta");
+
+                                String name = target.getName().getString();
+                                String uuid = target.getUuidAsString();
+
+                                try {
+                                    sql.adjustSoulboundMax(name, uuid, delta);
+                                    ctx.getSource().sendMessage(Text.literal(
+                                        "Adjusted " + name + " CraftedSoulboundMax by " + delta));
+                                    return 1;
+                                } catch (Exception e) {
+                                    ctx.getSource().sendMessage(Text.literal("Error updating CraftedSoulboundMax: " + e.getMessage()).formatted(Formatting.RED));
+                                    LOGGER.error("Error adjusting CraftedSoulboundMax for {}", name, e);
+                                    return 0;
+                                }
+                            })))
+            )
+        );
 
         ServerLifecycleEvents.SERVER_STARTING.register(server -> wrappedOps = server.getRegistryManager().getOps(JsonOps.INSTANCE));
 
