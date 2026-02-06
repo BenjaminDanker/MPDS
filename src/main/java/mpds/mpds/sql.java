@@ -39,6 +39,8 @@ public class sql {
 
     public static PreparedStatement setCaveDefeated;
 
+    public static PreparedStatement setStage1Cleared;
+
     public static void init() throws SQLException {
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
@@ -112,6 +114,7 @@ public class sql {
                         "DesertDefeated boolean NOT NULL DEFAULT false," +
                         "OceanDefeated boolean NOT NULL DEFAULT false," +
                         "CaveDefeated boolean NOT NULL DEFAULT false," +
+                        "Stage1Cleared boolean NOT NULL DEFAULT false," +
                         "sync char(5)," +
                         "server text" +
                         ")");
@@ -137,6 +140,10 @@ public class sql {
             statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN CaveDefeated boolean NOT NULL DEFAULT false");
         } catch (SQLException ignored) {
         }
+        try {
+            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN Stage1Cleared boolean NOT NULL DEFAULT false");
+        } catch (SQLException ignored) {
+        }
 
         ensureRow = connection.prepareStatement(
             "INSERT INTO " + TABLE_NAME + " (Name, uuid, sync, server) VALUES (?, ?, \"true\", \"*\") " +
@@ -153,6 +160,9 @@ public class sql {
             "UPDATE " + TABLE_NAME + " SET OceanDefeated = ? WHERE uuid = ?");
         setCaveDefeated = connection.prepareStatement(
             "UPDATE " + TABLE_NAME + " SET CaveDefeated = ? WHERE uuid = ?");
+
+        setStage1Cleared = connection.prepareStatement(
+            "UPDATE " + TABLE_NAME + " SET Stage1Cleared = ? WHERE uuid = ?");
 
         statement.execute
                 ("CREATE TABLE IF NOT EXISTS skipplayer(" +
@@ -257,6 +267,13 @@ public class sql {
         setCaveDefeated.setBoolean(1, value);
         setCaveDefeated.setString(2, uuid);
         setCaveDefeated.executeUpdate();
+    }
+
+    public static void setStage1Cleared(String name, String uuid, boolean value) throws SQLException {
+        ensureRow(name, uuid);
+        setStage1Cleared.setBoolean(1, value);
+        setStage1Cleared.setString(2, uuid);
+        setStage1Cleared.executeUpdate();
     }
 
     public static void close() throws SQLException {
