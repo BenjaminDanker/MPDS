@@ -323,6 +323,40 @@ public class MPDS implements ModInitializer {
             )
         );
 
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(
+                literal("mpdsremovecustomidself")
+                    .then(argument("key", StringArgumentType.word())
+                        .then(argument("value", StringArgumentType.word())
+                            .executes(ctx -> {
+                                if (wrappedOps == null) {
+                                    ctx.getSource().sendMessage(Text.literal("MPDS registry ops not ready yet.").formatted(Formatting.RED));
+                                    return 0;
+                                }
+
+                                ServerPlayerEntity self = ctx.getSource().getPlayer();
+                                if (self == null) {
+                                    ctx.getSource().sendMessage(Text.literal("Players only.").formatted(Formatting.RED));
+                                    return 0;
+                                }
+
+                                String key = StringArgumentType.getString(ctx, "key");
+                                String value = StringArgumentType.getString(ctx, "value");
+
+                                try {
+                                    int removed = removeCustomDataFromDbInventories(self.getUuidAsString(), key, value);
+                                    self.sendMessage(Text.literal("Removed " + removed + " item(s) from your DB soulbound inventories for " + key + "=" + value)
+                                            .formatted(Formatting.YELLOW));
+                                    return 1;
+                                } catch (Exception e) {
+                                    self.sendMessage(Text.literal("Error removing items from DB: " + e.getMessage()).formatted(Formatting.RED));
+                                    LOGGER.error("Error removing custom data items from DB for {} {}={}", self.getName().getString(), key, value, e);
+                                    return 0;
+                                }
+                            })))
+            )
+        );
+
         ServerLifecycleEvents.SERVER_STARTING.register(server -> wrappedOps = server.getRegistryManager().getOps(JsonOps.INSTANCE));
 
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
