@@ -7,14 +7,14 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 @Mixin(HungerManager.class)
 public interface HungerManagerAccessor {
     @Accessor("foodTickTimer")
-    void setFoodTickTimer(int foodTickTimer);
+    void mpds$setFoodTickTimer(int foodTickTimer);
 
     @Accessor("foodTickTimer")
-    int getFoodTickTimer();
+    int mpds$getFoodTickTimer();
 
     @Accessor("exhaustion")
-    void setExhaustion(float exhaustion);
+    void mpds$setExhaustion(float exhaustion);
 
     @Accessor("exhaustion")
-    float getExhaustion();
+    float mpds$getExhaustion();
 }

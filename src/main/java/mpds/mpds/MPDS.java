@@ -18,9 +18,13 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
+import mpds.mpds.net.ReturnRemoveRequestPayload;
+import mpds.mpds.net.ReturnRemoveResponsePayload;
 import net.minecraft.network.packet.s2c.play.PlaySoundS2CPacket;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryOps;
@@ -82,6 +86,7 @@ public class MPDS implements ModInitializer {
     private static final String DB_COL_OFF = "off";
     private static final String DB_COL_ARMOR = "armor";
     private static final String DB_COL_ENDER = "enderChestInventory";
+
 
     @Override
     public void onInitialize() {
@@ -359,6 +364,53 @@ public class MPDS implements ModInitializer {
 
         ServerLifecycleEvents.SERVER_STARTING.register(server -> wrappedOps = server.getRegistryManager().getOps(JsonOps.INSTANCE));
 
+        PayloadTypeRegistry.playC2S().register(ReturnRemoveRequestPayload.PACKET_ID, ReturnRemoveRequestPayload.codec);
+        PayloadTypeRegistry.playS2C().register(ReturnRemoveResponsePayload.PACKET_ID, ReturnRemoveResponsePayload.codec);
+
+        ServerPlayNetworking.registerGlobalReceiver(ReturnRemoveRequestPayload.PACKET_ID, (payload, context) -> {
+            context.server().execute(() -> {
+                UUID requestId = payload.requestId();
+                try {
+                    int removedInv = 0;
+                    int removedDb = 0;
+                    int remainingInv = 0;
+                    int remainingDb = 0;
+
+                    for (ReturnRemoveRequestPayload.Entry e : payload.entries()) {
+                        String key = e.key();
+                        String value = e.value();
+
+                        removedInv += removeCustomDataFromLiveInventories(context.player(), key, value);
+                        removedDb += removeCustomDataFromDbInventories(context.player().getUuidAsString(), key, value);
+
+                        remainingInv += countCustomDataInLiveInventories(context.player(), key, value);
+                        remainingDb += countCustomDataInDbInventories(context.player().getUuidAsString(), key, value);
+                    }
+
+                    ServerPlayNetworking.send(context.player(), new ReturnRemoveResponsePayload(
+                            requestId,
+                            true,
+                            removedInv,
+                            removedDb,
+                            remainingInv,
+                            remainingDb,
+                            ""
+                    ));
+                } catch (Exception ex) {
+                    LOGGER.error("MPDS return_remove handler failed", ex);
+                    ServerPlayNetworking.send(context.player(), new ReturnRemoveResponsePayload(
+                            requestId,
+                            false,
+                            0,
+                            0,
+                            0,
+                            0,
+                            ex.toString()
+                    ));
+                }
+            });
+        });
+
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             try {
                 sql.close();
@@ -368,6 +420,136 @@ public class MPDS implements ModInitializer {
         });
 
         LOGGER.info("MPDS loaded");
+    }
+
+    private static int removeCustomDataFromLiveInventories(ServerPlayerEntity player, String key, String value) {
+        if (player == null || key == null || value == null || key.isBlank() || value.isBlank()) {
+            return 0;
+        }
+
+        int removed = 0;
+
+        var inv = player.getInventory();
+        for (int i = 0; i < inv.size(); i++) {
+            ItemStack stack = inv.getStack(i);
+            if (!stack.isEmpty() && matchesCustomData(stack, key, value)) {
+                inv.setStack(i, ItemStack.EMPTY);
+                removed++;
+            }
+        }
+
+        var ender = player.getEnderChestInventory();
+        for (int i = 0; i < ender.size(); i++) {
+            ItemStack stack = ender.getStack(i);
+            if (!stack.isEmpty() && matchesCustomData(stack, key, value)) {
+                ender.setStack(i, ItemStack.EMPTY);
+                removed++;
+            }
+        }
+
+        if (removed > 0) {
+            inv.markDirty();
+            ender.markDirty();
+            player.currentScreenHandler.sendContentUpdates();
+        }
+
+        return removed;
+    }
+
+    private static int countCustomDataInLiveInventories(ServerPlayerEntity player, String key, String value) {
+        if (player == null || key == null || value == null || key.isBlank() || value.isBlank()) {
+            return 0;
+        }
+
+        int count = 0;
+        var inv = player.getInventory();
+        for (int i = 0; i < inv.size(); i++) {
+            ItemStack stack = inv.getStack(i);
+            if (!stack.isEmpty() && matchesCustomData(stack, key, value)) {
+                count++;
+            }
+        }
+
+        var ender = player.getEnderChestInventory();
+        for (int i = 0; i < ender.size(); i++) {
+            ItemStack stack = ender.getStack(i);
+            if (!stack.isEmpty() && matchesCustomData(stack, key, value)) {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int countCustomDataInDbInventories(String uuid, String key, String value) throws SQLException {
+        int count = 0;
+
+        ResultSet rs = sql.join(uuid);
+        if (!rs.next()) {
+            return 0;
+        }
+
+        String mainStored = safeString(rs.getString(DB_COL_MAIN));
+        String offStored = safeString(rs.getString(DB_COL_OFF));
+        String armorStored = safeString(rs.getString(DB_COL_ARMOR));
+        String enderStored = safeString(rs.getString(DB_COL_ENDER));
+
+        count += countSlotEncodedList(mainStored, key, value);
+        count += countSlotEncodedList(armorStored, key, value);
+        count += countSlotEncodedList(enderStored, key, value);
+        count += countSingleStack(offStored, key, value);
+
+        return count;
+    }
+
+    private static int countSingleStack(String json, String key, String value) {
+        if (json == null || json.isEmpty()) {
+            return 0;
+        }
+        try {
+            ItemStack parsed = ItemStack.CODEC.parse(wrappedOps, JsonParser.parseString(json))
+                .resultOrPartial(LOGGER::error)
+                .orElse(ItemStack.EMPTY);
+            if (!parsed.isEmpty() && matchesCustomData(parsed, key, value)) {
+                return 1;
+            }
+            return 0;
+        } catch (Exception e) {
+            LOGGER.error("Failed parsing ItemStack JSON while counting single stack", e);
+            return 0;
+        }
+    }
+
+    private static int countSlotEncodedList(String stored, String key, String value) {
+        if (stored == null || stored.isEmpty()) {
+            return 0;
+        }
+
+        int count = 0;
+        String[] entries = stored.split("&");
+        for (String entry : entries) {
+            if (entry == null || entry.isEmpty()) {
+                continue;
+            }
+
+            int tilde = entry.lastIndexOf('~');
+            if (tilde <= 0 || tilde >= entry.length() - 1) {
+                continue;
+            }
+
+            String json = entry.substring(0, tilde);
+            try {
+                ItemStack parsed = ItemStack.CODEC.parse(wrappedOps, JsonParser.parseString(json))
+                    .resultOrPartial(LOGGER::error)
+                    .orElse(ItemStack.EMPTY);
+                if (!parsed.isEmpty() && matchesCustomData(parsed, key, value)) {
+                    count++;
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed parsing ItemStack JSON while counting list entry", e);
+            }
+        }
+        return count;
     }
 
     private static int removeCustomDataFromDbInventories(String uuid, String key, String value) throws SQLException {

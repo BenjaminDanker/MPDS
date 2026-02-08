@@ -49,10 +49,10 @@ public class sqlPlayer {
         if (SH) player.setHealth(resultSet.getFloat("Health"));
 
         if (SF) {
-            ((HungerManagerAccessor) player.getHungerManager()).setExhaustion(resultSet.getFloat("exhaustion"));
+            ((HungerManagerAccessor) player.getHungerManager()).mpds$setExhaustion(resultSet.getFloat("exhaustion"));
             player.getHungerManager().setFoodLevel(resultSet.getInt("foodLevel"));
             player.getHungerManager().setSaturationLevel(resultSet.getFloat("saturationLevel"));
-            ((HungerManagerAccessor) player.getHungerManager()).setFoodTickTimer(resultSet.getInt("foodTickTimer"));
+            ((HungerManagerAccessor) player.getHungerManager()).mpds$setFoodTickTimer(resultSet.getInt("foodTickTimer"));
         }
 
         if (SL) {
@@ -143,10 +143,10 @@ public class sqlPlayer {
         this.uuid = player.getUuidAsString();
         this.air = player.getAir();
         this.health = player.getHealth();
-        this.exhaustion = ((HungerManagerAccessor) player.getHungerManager()).getExhaustion();
+        this.exhaustion = ((HungerManagerAccessor) player.getHungerManager()).mpds$getExhaustion();
         this.foodLevel = player.getHungerManager().getFoodLevel();
         this.saturationLevel = player.getHungerManager().getSaturationLevel();
-        this.foodTickTimer = ((HungerManagerAccessor) player.getHungerManager()).getFoodTickTimer();
+        this.foodTickTimer = ((HungerManagerAccessor) player.getHungerManager()).mpds$getFoodTickTimer();
         this.experienceLevel = player.experienceLevel;
         this.experienceProgress = player.experienceProgress;
 
