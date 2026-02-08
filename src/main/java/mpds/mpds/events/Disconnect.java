@@ -33,7 +33,7 @@ public class Disconnect {
                             minecraftServer.getPlayerManager().broadcast(Text.translatable("skip saving because " + playerN + "'s data includes skip list").formatted(Formatting.YELLOW), false);
                         LOGGER.warn("skip saving because {}'s data includes skip list", playerN);
 
-                        player.playSound(BLOCK_GLASS_BREAK, 1f, 1f);
+                        // player.playSound(BLOCK_GLASS_BREAK, 1f, 1f);
                         sql.beA(player.getUuidAsString());
 
                         return;

@@ -24,8 +24,8 @@ public class Join {
             String playerN = player.getName().getString();
             broken.add(player.getUuid());
 
-            if (AJM)
-                player.sendMessage(Text.translatable("loading " + playerN + "'s data...").formatted(Formatting.YELLOW));
+            // if (AJM)
+            //     player.sendMessage(Text.translatable("loading " + playerN + "'s data...").formatted(Formatting.YELLOW));
             LOGGER.info("loading {}'s data...", playerN);
 
             while (true) {
@@ -33,16 +33,16 @@ public class Join {
                     ResultSet checkskiprs = sql.checkSkip(playerN);
 
                     if (checkskiprs.next() && "true".equals(checkskiprs.getString("skip"))) {
-                        if (ASM) {
-                            minecraftServer.getPlayerManager().broadcast(Text.translatable("skip loading because " + playerN + "'s data includes skip list").formatted(Formatting.YELLOW), false);
-                            player.sendMessage(Text.translatable("skip loading because " + playerN + "'s data includes skip list").formatted(Formatting.YELLOW));
-                        }
+                        // if (ASM) {
+                        //     minecraftServer.getPlayerManager().broadcast(Text.translatable("skip loading because " + playerN + "'s data includes skip list").formatted(Formatting.YELLOW), false);
+                        //     player.sendMessage(Text.translatable("skip loading because " + playerN + "'s data includes skip list").formatted(Formatting.YELLOW));
+                        // }
                         LOGGER.warn("skip loading because {}'s data includes skip list", playerN);
 
                         broken.remove(player.getUuid());
 
-                        playSound(player, BLOCK_GLASS_BREAK);
-                        player.playSound(BLOCK_GLASS_BREAK, 1f, 1f);
+                        // playSound(player, BLOCK_GLASS_BREAK);
+                        // player.playSound(BLOCK_GLASS_BREAK, 1f, 1f);
 
                         return;
                     }
@@ -52,19 +52,19 @@ public class Join {
                         for (int i = 0; "false".equals(resultSet.getString("sync")); i++) {
                             if (i == 3) {
                                 if (ServerName.equals(resultSet.getString("server")) || "*".equals(resultSet.getString("server"))) {
-                                    if (AJM)
-                                        player.sendMessage(Text.translatable("saved " + playerN + "'s correct data").formatted(Formatting.AQUA));
+                                    // if (AJM)
+                                    //     player.sendMessage(Text.translatable("saved " + playerN + "'s correct data").formatted(Formatting.AQUA));
                                     LOGGER.info("saved {}'s correct data", playerN);
 
                                     broken.remove(player.getUuid());
-                                    playSound(player, ENTITY_PLAYER_LEVELUP);
+                                    // playSound(player, ENTITY_PLAYER_LEVELUP);
 
                                     return;
                                 }
-                                if (AEM)
-                                    player.sendMessage(Text.translatable("IT LOOKS " + playerN + "'s DATA WAS BROKEN!\nPLEASE CONNECT TO " + resultSet.getString("server") + "!").formatted(Formatting.RED));
+                                // if (AEM)
+                                //     player.sendMessage(Text.translatable("IT LOOKS " + playerN + "'s DATA WAS BROKEN!\nPLEASE CONNECT TO " + resultSet.getString("server") + "!").formatted(Formatting.RED));
                                 LOGGER.error("IT LOOKS {}'s DATA WAS BROKEN!\nPLEASE CONNECT TO {}!", playerN, resultSet.getString("server"));
-                                playSound(player, BLOCK_ANVIL_DESTROY);
+                                // playSound(player, BLOCK_ANVIL_DESTROY);
 
                                 return;
                             }
@@ -75,11 +75,11 @@ public class Join {
                         sql.beFalse(player.getUuid().toString());
                         sqlPlayer.sqlToPlayer(player, resultSet);
 
-                        if (AJM)
-                            player.sendMessage(Text.translatable("success to load " + playerN + "'s data!").formatted(Formatting.AQUA));
+                        // if (AJM)
+                        //     player.sendMessage(Text.translatable("success to load " + playerN + "'s data!").formatted(Formatting.AQUA));
                         LOGGER.info("success to load {}'s data!", playerN);
 
-                        playSound(player, ENTITY_PLAYER_LEVELUP);
+                        // playSound(player, ENTITY_PLAYER_LEVELUP);
                         sql.setServer(player.getUuid().toString());
                         broken.remove(player.getUuid());
 
@@ -88,11 +88,11 @@ public class Join {
 
                         for (int i = 1; !sql.join(player.getUuid().toString()).next(); i++) {
                             if (i == 3) {
-                                if (AEM)
-                                    player.sendMessage(Text.translatable("COULD NOT FIND " + playerN + "'s DATA!\nMADE NEW ONE!").formatted(Formatting.RED));
+                                // if (AEM)
+                                //     player.sendMessage(Text.translatable("COULD NOT FIND " + playerN + "'s DATA!\nMADE NEW ONE!").formatted(Formatting.RED));
                                 LOGGER.warn("COULD NOT FIND {}'s DATA!\nMADE NEW ONE!", playerN);
 
-                                playSound(player, BLOCK_GLASS_BREAK);
+                                // playSound(player, BLOCK_GLASS_BREAK);
                                 broken.remove(player.getUuid());
                                 sql.setServer(player.getUuid().toString());
 
@@ -105,11 +105,11 @@ public class Join {
                     return;
                 } catch (CommunicationsException ignored) {
                 } catch (Exception e) {
-                    if (AEM)
-                        player.sendMessage(Text.translatable("THERE WERE SOME ERRORS WHEN LOAD " + playerN + "'s DATA! : \n" + e.getMessage()).formatted(Formatting.RED));
+                    // if (AEM)
+                    //     player.sendMessage(Text.translatable("THERE WERE SOME ERRORS WHEN LOAD " + playerN + "'s DATA! : \n" + e.getMessage()).formatted(Formatting.RED));
                     LOGGER.error("THERE WERE SOME ERRORS WHEN LOAD {}'s DATA!:", playerN);
 
-                    playSound(player, BLOCK_ANVIL_DESTROY);
+                    // playSound(player, BLOCK_ANVIL_DESTROY);
                     e.printStackTrace();
 
                     return;
