@@ -4,7 +4,8 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "HungerManagerAccessor",
-    "PlayerManagerInvoker"
+    "PlayerManagerInvoker",
+    "UtilMixin"
   ],
   "injectors": {
     "defaultRequire": 1
