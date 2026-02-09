@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
@@ -54,7 +55,7 @@ public class MPDS implements ModInitializer {
 
     public static String ServerName;
 
-    public static final List<UUID> broken = new ArrayList<>();
+    public static final Set<UUID> broken = ConcurrentHashMap.newKeySet();
 
     static HashMap<String, String> config;
 

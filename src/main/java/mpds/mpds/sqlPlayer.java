@@ -43,26 +43,67 @@ public class sqlPlayer {
     public String armor;
     public String effects;
 
-    public static void sqlToPlayer(ServerPlayerEntity player, ResultSet resultSet) throws SQLException {
-        if (SA) player.setAir(resultSet.getInt("Air"));
+    public record SqlRow(
+        int air,
+        float health,
+        float exhaustion,
+        int foodLevel,
+        float saturationLevel,
+        int foodTickTimer,
+        int experienceLevel,
+        float experienceProgress,
+        String enderChestInventory,
+        String off,
+        int selectedSlot,
+        String main,
+        String armor,
+        String effects
+    ) {
+    }
 
-        if (SH) player.setHealth(resultSet.getFloat("Health"));
+    public static SqlRow readRow(ResultSet resultSet) throws SQLException {
+        return new SqlRow(
+            resultSet.getInt("Air"),
+            resultSet.getFloat("Health"),
+            resultSet.getFloat("exhaustion"),
+            resultSet.getInt("foodLevel"),
+            resultSet.getFloat("saturationLevel"),
+            resultSet.getInt("foodTickTimer"),
+            resultSet.getInt("experienceLevel"),
+            resultSet.getFloat("experienceProgress"),
+            resultSet.getString("enderChestInventory"),
+            resultSet.getString("off"),
+            resultSet.getInt("selectedSlot"),
+            resultSet.getString("main"),
+            resultSet.getString("armor"),
+            resultSet.getString("effects")
+        );
+    }
+
+    public static void sqlToPlayer(ServerPlayerEntity player, ResultSet resultSet) throws SQLException {
+        sqlToPlayer(player, readRow(resultSet));
+    }
+
+    public static void sqlToPlayer(ServerPlayerEntity player, SqlRow row) {
+        if (SA) player.setAir(row.air());
+
+        if (SH) player.setHealth(row.health());
 
         if (SF) {
-            ((HungerManagerAccessor) player.getHungerManager()).mpds$setExhaustion(resultSet.getFloat("exhaustion"));
-            player.getHungerManager().setFoodLevel(resultSet.getInt("foodLevel"));
-            player.getHungerManager().setSaturationLevel(resultSet.getFloat("saturationLevel"));
-            ((HungerManagerAccessor) player.getHungerManager()).mpds$setFoodTickTimer(resultSet.getInt("foodTickTimer"));
+            ((HungerManagerAccessor) player.getHungerManager()).mpds$setExhaustion(row.exhaustion());
+            player.getHungerManager().setFoodLevel(row.foodLevel());
+            player.getHungerManager().setSaturationLevel(row.saturationLevel());
+            ((HungerManagerAccessor) player.getHungerManager()).mpds$setFoodTickTimer(row.foodTickTimer());
         }
 
         if (SL) {
-            player.setExperienceLevel(resultSet.getInt("experienceLevel"));
-            player.experienceProgress = resultSet.getFloat("experienceProgress");
+            player.setExperienceLevel(row.experienceLevel());
+            player.experienceProgress = row.experienceProgress();
         }
 
         if (SEn) {
             purgeSoulboundFromInventory(player.getEnderChestInventory());
-            String stored = safeString(resultSet.getString("enderChestInventory"));
+            String stored = safeString(row.enderChestInventory());
             if (!stored.isEmpty()) {
                 List.of(stored.split("&")).forEach(compound -> {
                     String[] compounds = compound.split("~");
@@ -81,7 +122,7 @@ public class sqlPlayer {
         if (SI) {
             purgeSoulboundFromPlayerInventory(player);
 
-            String offStored = safeString(resultSet.getString("off"));
+            String offStored = safeString(row.off());
             if (!offStored.isEmpty()) {
                 ItemStack parsed = ItemStack.CODEC.parse(wrappedOps, JsonParser.parseString(offStored))
                     .resultOrPartial(LOGGER::error)
@@ -91,10 +132,10 @@ public class sqlPlayer {
                 }
             }
 
-            player.getInventory().setSelectedSlot(resultSet.getInt("selectedSlot"));
-            player.networkHandler.sendPacket(new UpdateSelectedSlotS2CPacket(resultSet.getInt("selectedSlot")));
+            player.getInventory().setSelectedSlot(row.selectedSlot());
+            player.networkHandler.sendPacket(new UpdateSelectedSlotS2CPacket(row.selectedSlot()));
 
-            String mainStored = safeString(resultSet.getString("main"));
+            String mainStored = safeString(row.main());
             if (!mainStored.isEmpty()) {
                 List.of(mainStored.split("&")).forEach(compound -> {
                     String[] compounds = compound.split("~");
@@ -109,7 +150,7 @@ public class sqlPlayer {
                 });
             }
 
-            String armorStored = safeString(resultSet.getString("armor"));
+            String armorStored = safeString(row.armor());
             if (!armorStored.isEmpty()) {
                 List.of(armorStored.split("&")).forEach(compound -> {
                     String[] compounds = compound.split("~");
@@ -134,8 +175,10 @@ public class sqlPlayer {
             }
         }
 
-        if (SEf && !"".equals(resultSet.getString("effects")))
-            List.of(resultSet.getString("effects").split("&")).forEach(compound -> player.addStatusEffect(StatusEffectInstance.CODEC.parse(wrappedOps, JsonParser.parseString(compound)).resultOrPartial(LOGGER::error).orElseThrow()));
+        String effectsStored = safeString(row.effects());
+        if (SEf && !effectsStored.isEmpty()) {
+            List.of(effectsStored.split("&")).forEach(compound -> player.addStatusEffect(StatusEffectInstance.CODEC.parse(wrappedOps, JsonParser.parseString(compound)).resultOrPartial(LOGGER::error).orElseThrow()));
+        }
     }
 
     public sqlPlayer(ServerPlayerEntity player) {

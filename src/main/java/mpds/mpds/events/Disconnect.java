@@ -12,6 +12,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
 import java.sql.ResultSet;
+import java.util.concurrent.CompletableFuture;
 
 import static mpds.mpds.MPDS.*;
 import static net.minecraft.sound.SoundEvents.BLOCK_GLASS_BREAK;
@@ -19,9 +20,11 @@ import static net.minecraft.sound.SoundEvents.BLOCK_GLASS_BREAK;
 public class Disconnect {
 
     public static void ondisconnect(ServerPlayNetworkHandler serverPlayNetworkHandler, MinecraftServer minecraftServer) {
+        ServerPlayerEntity player = serverPlayNetworkHandler.getPlayer();
+        String playerN = player.getName().getString();
+        String playerUuid = player.getUuidAsString();
+
         new Thread(() -> {
-            ServerPlayerEntity player = serverPlayNetworkHandler.getPlayer();
-            String playerN = player.getName().getString();
             LOGGER.info("saving {}'s data...", playerN);
 
             while (true) {
@@ -30,30 +33,44 @@ public class Disconnect {
 
                     if (checkskiprs.next() && "true".equals(checkskiprs.getString("skip"))) {
                         if (ASM)
-                            minecraftServer.getPlayerManager().broadcast(Text.translatable("skip saving because " + playerN + "'s data includes skip list").formatted(Formatting.YELLOW), false);
+                            minecraftServer.execute(() -> minecraftServer.getPlayerManager().broadcast(Text.translatable("skip saving because " + playerN + "'s data includes skip list").formatted(Formatting.YELLOW), false));
                         LOGGER.warn("skip saving because {}'s data includes skip list", playerN);
 
                         // player.playSound(BLOCK_GLASS_BREAK, 1f, 1f);
-                        sql.beA(player.getUuidAsString());
+                        sql.beA(playerUuid);
 
                         return;
                     }
 
-                    if (broken.stream().anyMatch(bplayer -> bplayer.equals(player.getUuid()))) {
+                    if (broken.contains(player.getUuid())) {
                         LOGGER.warn("skip saving because {}'s data was broken", playerN);
                         broken.remove(player.getUuid());
 
-                        player.getInventory().clear();
-                        player.getEnderChestInventory().clear();
-                        player.clearStatusEffects();
-                        ((PlayerManagerInvoker) minecraftServer.getPlayerManager()).invokesavePlayerData(player);
+                        minecraftServer.execute(() -> {
+                            try {
+                                player.getInventory().clear();
+                                player.getEnderChestInventory().clear();
+                                player.clearStatusEffects();
+                                // Don't force-save here; vanilla already saves on disconnect and double-saving can race.
+                            } catch (Exception e) {
+                                LOGGER.error("Failed to clear broken data for {}:", playerN, e);
+                            }
+                        });
 
                         return;
                     }
 
-                    sql.disconnect(new sqlPlayer(player));
+                    CompletableFuture<sqlPlayer> snapshotFuture = new CompletableFuture<>();
+                    minecraftServer.execute(() -> {
+                        try {
+                            snapshotFuture.complete(new sqlPlayer(player));
+                        } catch (Exception e) {
+                            snapshotFuture.completeExceptionally(e);
+                        }
+                    });
 
-                    ((PlayerManagerInvoker) minecraftServer.getPlayerManager()).invokesavePlayerData(player);
+                    sqlPlayer snapshot = snapshotFuture.join();
+                    sql.disconnect(snapshot);
                     LOGGER.info("success to save {}'s data", playerN);
 
                     return;

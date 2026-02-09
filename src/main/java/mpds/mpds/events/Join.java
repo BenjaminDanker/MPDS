@@ -19,10 +19,12 @@ import static net.minecraft.sound.SoundEvents.*;
 public class Join {
 
     public static void onjoin(ServerPlayNetworkHandler serverPlayNetworkHandler, PacketSender packetSender, MinecraftServer minecraftServer) {
+        ServerPlayerEntity player = serverPlayNetworkHandler.getPlayer();
+        String playerN = player.getName().getString();
+        broken.add(player.getUuid());
+
         new Thread(() -> {
-            ServerPlayerEntity player = serverPlayNetworkHandler.getPlayer();
-            String playerN = player.getName().getString();
-            broken.add(player.getUuid());
+            String playerUuid = player.getUuidAsString();
 
             // if (AJM)
             //     player.sendMessage(Text.translatable("loading " + playerN + "'s data...").formatted(Formatting.YELLOW));
@@ -48,7 +50,7 @@ public class Join {
                     }
 
                     ResultSet resultSet;
-                    if ((resultSet = sql.join(player.getUuid().toString())).next()) {
+                    if ((resultSet = sql.join(playerUuid)).next()) {
                         for (int i = 0; "false".equals(resultSet.getString("sync")); i++) {
                             if (i == 3) {
                                 if (ServerName.equals(resultSet.getString("server")) || "*".equals(resultSet.getString("server"))) {
@@ -69,24 +71,32 @@ public class Join {
                                 return;
                             }
                             Thread.sleep(1000);
-                            (resultSet = sql.join(player.getUuid().toString())).next();
+                            (resultSet = sql.join(playerUuid)).next();
                         }
 
-                        sql.beFalse(player.getUuid().toString());
-                        sqlPlayer.sqlToPlayer(player, resultSet);
+                        sql.beFalse(playerUuid);
+                        sqlPlayer.SqlRow row = sqlPlayer.readRow(resultSet);
+
+                        minecraftServer.execute(() -> {
+                            try {
+                                sqlPlayer.sqlToPlayer(player, row);
+                            } catch (Exception e) {
+                                LOGGER.error("Failed to apply MPDS data for {}:", playerN, e);
+                            }
+                        });
 
                         // if (AJM)
                         //     player.sendMessage(Text.translatable("success to load " + playerN + "'s data!").formatted(Formatting.AQUA));
                         LOGGER.info("success to load {}'s data!", playerN);
 
                         // playSound(player, ENTITY_PLAYER_LEVELUP);
-                        sql.setServer(player.getUuid().toString());
+                        sql.setServer(playerUuid);
                         broken.remove(player.getUuid());
 
                     } else {
                         Thread.sleep(1000);
 
-                        for (int i = 1; !sql.join(player.getUuid().toString()).next(); i++) {
+                        for (int i = 1; !sql.join(playerUuid).next(); i++) {
                             if (i == 3) {
                                 // if (AEM)
                                 //     player.sendMessage(Text.translatable("COULD NOT FIND " + playerN + "'s DATA!\nMADE NEW ONE!").formatted(Formatting.RED));
@@ -94,7 +104,7 @@ public class Join {
 
                                 // playSound(player, BLOCK_GLASS_BREAK);
                                 broken.remove(player.getUuid());
-                                sql.setServer(player.getUuid().toString());
+                                sql.setServer(playerUuid);
 
                                 return;
                             }
