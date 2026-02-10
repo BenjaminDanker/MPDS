@@ -272,6 +272,31 @@ public class MPDS implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
+                literal("mpdscurrentcraftedsoulbound")
+                    .requires(source -> source.hasPermissionLevel(2))
+                    .then(argument("player", EntityArgumentType.player())
+                        .executes(ctx -> {
+                            ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+
+                            String name = target.getName().getString();
+                            String uuid = target.getUuidAsString();
+
+                            try {
+                                int[] cap = sql.getCraftedSoulboundCapacity(name, uuid);
+                                ctx.getSource().sendMessage(Text.literal(
+                                    name + " CurrentCraftedSoulbound=" + cap[0] + " CraftedSoulboundMax=" + cap[1]));
+                                return 1;
+                            } catch (Exception e) {
+                                ctx.getSource().sendMessage(Text.literal("Error reading CurrentCraftedSoulbound: " + e.getMessage()).formatted(Formatting.RED));
+                                LOGGER.error("Error reading CurrentCraftedSoulbound for {}", name, e);
+                                return 0;
+                            }
+                        }))
+            )
+        );
+
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(
                 literal("mpdsstage1")
                     .requires(source -> source.hasPermissionLevel(2))
                     .then(argument("player", EntityArgumentType.player())
