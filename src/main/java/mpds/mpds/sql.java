@@ -31,11 +31,7 @@ public class sql {
 
     public static PreparedStatement adjustSoulboundMax;
 
-    public static PreparedStatement getCraftedSoulboundCapacity;
-
-    public static PreparedStatement incrementCurrentCraftedSoulbound;
-
-    public static PreparedStatement tryReserveCraftedSoulbound;
+    public static PreparedStatement getSoulboundMax;
 
     public static PreparedStatement setSkyIslandDefeated;
 
@@ -115,8 +111,7 @@ public class sql {
                         "experienceLevel int," +
                         "experienceProgress float," +
                         "effects longtext," +
-                        "CraftedSoulboundMax int NOT NULL DEFAULT 0," +
-                        "CurrentCraftedSoulbound int NOT NULL DEFAULT 0," +
+                        "SoulboundMax int NOT NULL DEFAULT 0," +
                         "SkyIslandDefeated boolean NOT NULL DEFAULT false," +
                         "DesertDefeated boolean NOT NULL DEFAULT false," +
                         "OceanDefeated boolean NOT NULL DEFAULT false," +
@@ -128,11 +123,15 @@ public class sql {
 
         // Safe migrations for existing tables. Ignore "duplicate column" errors.
         try {
-            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN CraftedSoulboundMax int NOT NULL DEFAULT 0");
+            statement.execute("ALTER TABLE " + TABLE_NAME + " CHANGE COLUMN CraftedSoulboundMax SoulboundMax int NOT NULL DEFAULT 0");
         } catch (SQLException ignored) {
         }
         try {
-            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN CurrentCraftedSoulbound int NOT NULL DEFAULT 0");
+            statement.execute("ALTER TABLE " + TABLE_NAME + " ADD COLUMN SoulboundMax int NOT NULL DEFAULT 0");
+        } catch (SQLException ignored) {
+        }
+        try {
+            statement.execute("UPDATE " + TABLE_NAME + " SET SoulboundMax = GREATEST(IFNULL(SoulboundMax, 0), IFNULL(CraftedSoulboundMax, 0))");
         } catch (SQLException ignored) {
         }
         try {
@@ -161,21 +160,11 @@ public class sql {
                 "ON DUPLICATE KEY UPDATE Name=VALUES(Name)");
 
         adjustSoulboundMax = connection.prepareStatement(
-            "UPDATE " + TABLE_NAME + " SET CraftedSoulboundMax = GREATEST(0, IFNULL(CraftedSoulboundMax, 0) + ?) WHERE uuid = ?");
+            "UPDATE " + TABLE_NAME + " SET SoulboundMax = GREATEST(0, IFNULL(SoulboundMax, 0) + ?) WHERE uuid = ?");
 
-        getCraftedSoulboundCapacity = connection.prepareStatement(
-            "SELECT IFNULL(CurrentCraftedSoulbound, 0) AS CurrentCraftedSoulbound, IFNULL(CraftedSoulboundMax, 0) AS CraftedSoulboundMax " +
+        getSoulboundMax = connection.prepareStatement(
+            "SELECT IFNULL(SoulboundMax, 0) AS SoulboundMax " +
                 "FROM " + TABLE_NAME + " WHERE uuid = ?");
-
-        incrementCurrentCraftedSoulbound = connection.prepareStatement(
-            "UPDATE " + TABLE_NAME + " SET CurrentCraftedSoulbound = " +
-                "LEAST(IFNULL(CraftedSoulboundMax, 0), GREATEST(0, IFNULL(CurrentCraftedSoulbound, 0) + ?)) " +
-                "WHERE uuid = ?");
-
-        tryReserveCraftedSoulbound = connection.prepareStatement(
-            "UPDATE " + TABLE_NAME + " " +
-                "SET CurrentCraftedSoulbound = IFNULL(CurrentCraftedSoulbound, 0) + 1 " +
-                "WHERE uuid = ? AND IFNULL(CurrentCraftedSoulbound, 0) < IFNULL(CraftedSoulboundMax, 0)");
 
         setSkyIslandDefeated = connection.prepareStatement(
             "UPDATE " + TABLE_NAME + " SET SkyIslandDefeated = ? WHERE uuid = ?");
@@ -266,34 +255,19 @@ public class sql {
         adjustSoulboundMax.executeUpdate();
     }
 
-    public static int[] getCraftedSoulboundCapacity(String name, String uuid) throws SQLException {
+    public static int getSoulboundMax(String name, String uuid) throws SQLException {
         ensureRow(name, uuid);
-        getCraftedSoulboundCapacity.setString(1, uuid);
-        try (ResultSet rs = getCraftedSoulboundCapacity.executeQuery()) {
+        getSoulboundMax.setString(1, uuid);
+        try (ResultSet rs = getSoulboundMax.executeQuery()) {
             if (rs.next()) {
-                return new int[] { rs.getInt("CurrentCraftedSoulbound"), rs.getInt("CraftedSoulboundMax") };
+                return rs.getInt("SoulboundMax");
             }
         }
-        return new int[] { 0, 0 };
+        return 0;
     }
 
     public static boolean canCraftAnotherSoulbound(String name, String uuid) throws SQLException {
-        int[] cap = getCraftedSoulboundCapacity(name, uuid);
-        return cap[0] < cap[1];
-    }
-
-    public static int[] incrementCurrentCraftedSoulbound(String name, String uuid, int delta) throws SQLException {
-        ensureRow(name, uuid);
-        incrementCurrentCraftedSoulbound.setInt(1, delta);
-        incrementCurrentCraftedSoulbound.setString(2, uuid);
-        incrementCurrentCraftedSoulbound.executeUpdate();
-        return getCraftedSoulboundCapacity(name, uuid);
-    }
-
-    public static boolean tryReserveCraftedSoulbound(String name, String uuid) throws SQLException {
-        ensureRow(name, uuid);
-        tryReserveCraftedSoulbound.setString(1, uuid);
-        return tryReserveCraftedSoulbound.executeUpdate() > 0;
+        return getSoulboundMax(name, uuid) > 0;
     }
 
     public static void setSkyIslandDefeated(String name, String uuid, boolean value) throws SQLException {

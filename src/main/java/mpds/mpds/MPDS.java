@@ -259,11 +259,11 @@ public class MPDS implements ModInitializer {
                                 try {
                                     sql.adjustSoulboundMax(name, uuid, delta);
                                     ctx.getSource().sendMessage(Text.literal(
-                                        "Adjusted " + name + " CraftedSoulboundMax by " + delta));
+                                        "Adjusted " + name + " SoulboundMax by " + delta));
                                     return 1;
                                 } catch (Exception e) {
-                                    ctx.getSource().sendMessage(Text.literal("Error updating CraftedSoulboundMax: " + e.getMessage()).formatted(Formatting.RED));
-                                    LOGGER.error("Error adjusting CraftedSoulboundMax for {}", name, e);
+                                    ctx.getSource().sendMessage(Text.literal("Error updating SoulboundMax: " + e.getMessage()).formatted(Formatting.RED));
+                                    LOGGER.error("Error adjusting SoulboundMax for {}", name, e);
                                     return 0;
                                 }
                             })))
@@ -272,7 +272,7 @@ public class MPDS implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
-                literal("mpdscurrentcraftedsoulbound")
+                literal("mpdsgetsoulboundmax")
                     .requires(source -> source.hasPermissionLevel(2))
                     .then(argument("player", EntityArgumentType.player())
                         .executes(ctx -> {
@@ -282,13 +282,13 @@ public class MPDS implements ModInitializer {
                             String uuid = target.getUuidAsString();
 
                             try {
-                                int[] cap = sql.getCraftedSoulboundCapacity(name, uuid);
+                                int max = sql.getSoulboundMax(name, uuid);
                                 ctx.getSource().sendMessage(Text.literal(
-                                    name + " CurrentCraftedSoulbound=" + cap[0] + " CraftedSoulboundMax=" + cap[1]));
+                                    name + " SoulboundMax=" + max));
                                 return 1;
                             } catch (Exception e) {
-                                ctx.getSource().sendMessage(Text.literal("Error reading CurrentCraftedSoulbound: " + e.getMessage()).formatted(Formatting.RED));
-                                LOGGER.error("Error reading CurrentCraftedSoulbound for {}", name, e);
+                                ctx.getSource().sendMessage(Text.literal("Error reading SoulboundMax: " + e.getMessage()).formatted(Formatting.RED));
+                                LOGGER.error("Error reading SoulboundMax for {}", name, e);
                                 return 0;
                             }
                         }))
