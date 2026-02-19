@@ -305,6 +305,36 @@ public class sql {
         setStage1Cleared.executeUpdate();
     }
 
+    public static boolean isSkyIslandDefeated(String name, String uuid) throws SQLException {
+        return isDefeatedFlag(name, uuid, "SkyIslandDefeated");
+    }
+
+    public static boolean isDesertDefeated(String name, String uuid) throws SQLException {
+        return isDefeatedFlag(name, uuid, "DesertDefeated");
+    }
+
+    public static boolean isOceanDefeated(String name, String uuid) throws SQLException {
+        return isDefeatedFlag(name, uuid, "OceanDefeated");
+    }
+
+    public static boolean isCaveDefeated(String name, String uuid) throws SQLException {
+        return isDefeatedFlag(name, uuid, "CaveDefeated");
+    }
+
+    private static boolean isDefeatedFlag(String name, String uuid, String columnName) throws SQLException {
+        ensureRow(name, uuid);
+        String query = "SELECT IFNULL(" + columnName + ", false) AS flag FROM " + TABLE_NAME + " WHERE uuid = ?";
+        try (PreparedStatement statement = connection.prepareStatement(query)) {
+            statement.setString(1, uuid);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getBoolean("flag");
+                }
+            }
+        }
+        return false;
+    }
+
     public static void close() throws SQLException {
         connection.close();
     }

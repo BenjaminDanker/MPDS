@@ -219,11 +219,24 @@ public class MPDS implements ModInitializer {
                                     String uuid = target.getUuidAsString();
 
                                     try {
+                                        boolean previous;
                                         switch (flag.toLowerCase(Locale.ROOT)) {
-                                            case "skyisland", "skyislanddefeated" -> sql.setSkyIslandDefeated(name, uuid, value);
-                                            case "desert", "desertdefeated" -> sql.setDesertDefeated(name, uuid, value);
-                                            case "ocean", "oceandefeated" -> sql.setOceanDefeated(name, uuid, value);
-                                            case "cave", "cavedefeated" -> sql.setCaveDefeated(name, uuid, value);
+                                            case "skyisland", "skyislanddefeated" -> {
+                                                previous = sql.isSkyIslandDefeated(name, uuid);
+                                                sql.setSkyIslandDefeated(name, uuid, value);
+                                            }
+                                            case "desert", "desertdefeated" -> {
+                                                previous = sql.isDesertDefeated(name, uuid);
+                                                sql.setDesertDefeated(name, uuid, value);
+                                            }
+                                            case "ocean", "oceandefeated" -> {
+                                                previous = sql.isOceanDefeated(name, uuid);
+                                                sql.setOceanDefeated(name, uuid, value);
+                                            }
+                                            case "cave", "cavedefeated" -> {
+                                                previous = sql.isCaveDefeated(name, uuid);
+                                                sql.setCaveDefeated(name, uuid, value);
+                                            }
                                             default -> {
                                                 ctx.getSource().sendMessage(Text.literal(
                                                     "Unknown flag. Use: SkyIslandDefeated, DesertDefeated, OceanDefeated, CaveDefeated"));
@@ -231,9 +244,11 @@ public class MPDS implements ModInitializer {
                                             }
                                         }
 
+                                        boolean changed = previous != value;
+
                                         ctx.getSource().sendMessage(Text.literal(
-                                            "Set " + name + " " + flag + " = " + value));
-                                        return 1;
+                                            "Set " + name + " " + flag + " = " + value + (changed ? "" : " (unchanged)")));
+                                        return changed ? 1 : 0;
                                     } catch (Exception e) {
                                         ctx.getSource().sendMessage(Text.literal("Error updating flag: " + e.getMessage()).formatted(Formatting.RED));
                                         LOGGER.error("Error updating defeated flag {} for {}", flag, name, e);
@@ -267,6 +282,74 @@ public class MPDS implements ModInitializer {
                                     return 0;
                                 }
                             })))
+            )
+        );
+
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(
+                literal("mpdsgrantbossreward")
+                    .requires(source -> source.hasPermissionLevel(2))
+                    .then(argument("player", EntityArgumentType.player())
+                        .then(argument("flag", StringArgumentType.word())
+                            .then(argument("delta", IntegerArgumentType.integer())
+                                .executes(ctx -> {
+                                    ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                    String flag = StringArgumentType.getString(ctx, "flag");
+                                    int delta = IntegerArgumentType.getInteger(ctx, "delta");
+
+                                    String name = target.getName().getString();
+                                    String uuid = target.getUuidAsString();
+
+                                    try {
+                                        boolean defeated;
+                                        switch (flag.toLowerCase(Locale.ROOT)) {
+                                            case "skyisland", "skyislanddefeated" -> {
+                                                defeated = sql.isSkyIslandDefeated(name, uuid);
+                                                if (!defeated) {
+                                                    sql.setSkyIslandDefeated(name, uuid, true);
+                                                }
+                                            }
+                                            case "desert", "desertdefeated" -> {
+                                                defeated = sql.isDesertDefeated(name, uuid);
+                                                if (!defeated) {
+                                                    sql.setDesertDefeated(name, uuid, true);
+                                                }
+                                            }
+                                            case "ocean", "oceandefeated" -> {
+                                                defeated = sql.isOceanDefeated(name, uuid);
+                                                if (!defeated) {
+                                                    sql.setOceanDefeated(name, uuid, true);
+                                                }
+                                            }
+                                            case "cave", "cavedefeated" -> {
+                                                defeated = sql.isCaveDefeated(name, uuid);
+                                                if (!defeated) {
+                                                    sql.setCaveDefeated(name, uuid, true);
+                                                }
+                                            }
+                                            default -> {
+                                                ctx.getSource().sendMessage(Text.literal(
+                                                    "Unknown flag. Use: SkyIslandDefeated, DesertDefeated, OceanDefeated, CaveDefeated"));
+                                                return 0;
+                                            }
+                                        }
+
+                                        if (defeated) {
+                                            ctx.getSource().sendMessage(Text.literal(
+                                                name + " already has " + flag + "=true; SoulboundMax not changed."));
+                                            return 0;
+                                        }
+
+                                        sql.adjustSoulboundMax(name, uuid, delta);
+                                        ctx.getSource().sendMessage(Text.literal(
+                                            "Granted boss reward for " + name + ": " + flag + "=true, SoulboundMax +" + delta));
+                                        return 1;
+                                    } catch (Exception e) {
+                                        ctx.getSource().sendMessage(Text.literal("Error granting boss reward: " + e.getMessage()).formatted(Formatting.RED));
+                                        LOGGER.error("Error granting boss reward {} for {}", flag, name, e);
+                                        return 0;
+                                    }
+                                }))))
             )
         );
 
