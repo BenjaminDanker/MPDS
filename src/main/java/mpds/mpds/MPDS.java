@@ -148,7 +148,9 @@ public class MPDS implements ModInitializer {
         ServerPlayConnectionEvents.DISCONNECT.register(Disconnect::ondisconnect);
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
-                dispatcher.register(literal("updateskip").then(argument("player", StringArgumentType.word()).then(argument("skip", BoolArgumentType.bool())
+            dispatcher.register(literal("updateskip")
+                .requires(source -> source.hasPermissionLevel(2))
+                .then(argument("player", StringArgumentType.word()).then(argument("skip", BoolArgumentType.bool())
                         .executes(ctx -> {
                             while (true) {
                                 try {
@@ -166,10 +168,11 @@ public class MPDS implements ModInitializer {
                                 }
                             }
                         })
-                ))));
+                    ))));
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 dispatcher.register(literal("showskip")
+                .requires(source -> source.hasPermissionLevel(2))
                         .executes(ctx -> {
                             ResultSet skiprs;
                             StringBuilder skipp = new StringBuilder();
@@ -440,6 +443,7 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsremovecustomidself")
+                    .requires(source -> source.hasPermissionLevel(2))
                     .then(argument("key", StringArgumentType.word())
                         .then(argument("value", StringArgumentType.word())
                             .executes(ctx -> {
