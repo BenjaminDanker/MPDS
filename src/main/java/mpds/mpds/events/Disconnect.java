@@ -4,25 +4,23 @@ import com.mysql.cj.jdbc.exceptions.CommunicationsException;
 import mpds.mpds.mixin.PlayerManagerInvoker;
 import mpds.mpds.sql;
 import mpds.mpds.sqlPlayer;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayNetworkHandler;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import java.sql.ResultSet;
 import java.util.concurrent.CompletableFuture;
 
 import static mpds.mpds.MPDS.*;
-import static net.minecraft.sound.SoundEvents.BLOCK_GLASS_BREAK;
+import static net.minecraft.sounds.SoundEvents.GLASS_BREAK;
 
 public class Disconnect {
 
-    public static void ondisconnect(ServerPlayNetworkHandler serverPlayNetworkHandler, MinecraftServer minecraftServer) {
-        ServerPlayerEntity player = serverPlayNetworkHandler.getPlayer();
+    public static void ondisconnect(ServerGamePacketListenerImpl serverPlayNetworkHandler, MinecraftServer minecraftServer) {
+        ServerPlayer player = serverPlayNetworkHandler.getPlayer();
         String playerN = player.getName().getString();
-        String playerUuid = player.getUuidAsString();
+        String playerUuid = player.getStringUUID();
 
         new Thread(() -> {
             LOGGER.info("saving {}'s data...", playerN);
@@ -33,7 +31,7 @@ public class Disconnect {
 
                     if (checkskiprs.next() && "true".equals(checkskiprs.getString("skip"))) {
                         if (ASM)
-                            minecraftServer.execute(() -> minecraftServer.getPlayerManager().broadcast(Text.translatable("skip saving because " + playerN + "'s data includes skip list").formatted(Formatting.YELLOW), false));
+                            minecraftServer.execute(() -> minecraftServer.getPlayerList().broadcastSystemMessage(Component.translatable("skip saving because " + playerN + "'s data includes skip list").withStyle(ChatFormatting.YELLOW), false));
                         LOGGER.warn("skip saving because {}'s data includes skip list", playerN);
 
                         // player.playSound(BLOCK_GLASS_BREAK, 1f, 1f);
@@ -42,15 +40,15 @@ public class Disconnect {
                         return;
                     }
 
-                    if (broken.contains(player.getUuid())) {
+                    if (broken.contains(player.getUUID())) {
                         LOGGER.warn("skip saving because {}'s data was broken", playerN);
-                        broken.remove(player.getUuid());
+                        broken.remove(player.getUUID());
 
                         minecraftServer.execute(() -> {
                             try {
-                                player.getInventory().clear();
-                                player.getEnderChestInventory().clear();
-                                player.clearStatusEffects();
+                                player.getInventory().clearContent();
+                                player.getEnderChestInventory().clearContent();
+                                player.removeAllEffects();
                                 // Don't force-save here; vanilla already saves on disconnect and double-saving can race.
                             } catch (Exception e) {
                                 LOGGER.error("Failed to clear broken data for {}:", playerN, e);

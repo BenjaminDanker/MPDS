@@ -11,9 +11,6 @@ import com.mojang.serialization.JsonOps;
 import com.mysql.cj.jdbc.exceptions.CommunicationsException;
 import mpds.mpds.events.Disconnect;
 import mpds.mpds.events.Join;
-import net.minecraft.command.argument.EntityArgumentType;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.NbtComponent;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -21,19 +18,20 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.RegistryOps;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.permissions.Permissions;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
 import mpds.mpds.net.ReturnRemoveRequestPayload;
 import mpds.mpds.net.ReturnRemoveResponsePayload;
-import net.minecraft.network.packet.s2c.play.PlaySoundS2CPacket;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryOps;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.math.random.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,8 +44,8 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static net.minecraft.server.command.CommandManager.argument;
-import static net.minecraft.server.command.CommandManager.literal;
+import static net.minecraft.commands.Commands.argument;
+import static net.minecraft.commands.Commands.literal;
 
 public class MPDS implements ModInitializer {
 
@@ -149,18 +147,18 @@ public class MPDS implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(literal("updateskip")
-                .requires(source -> source.hasPermissionLevel(2))
+                .requires(MPDS::hasGameMasterPermission)
                 .then(argument("player", StringArgumentType.word()).then(argument("skip", BoolArgumentType.bool())
                         .executes(ctx -> {
                             while (true) {
                                 try {
                                     sql.updateSkip(StringArgumentType.getString(ctx, "player"), String.valueOf(BoolArgumentType.getBool(ctx, "skip")));
-                                    ctx.getSource().getServer().getPlayerManager().broadcast(Text.translatable("set " + StringArgumentType.getString(ctx, "player") + "'s data " + BoolArgumentType.getBool(ctx, "skip")).formatted(Formatting.YELLOW), false);
+                                    ctx.getSource().getServer().getPlayerList().broadcastSystemMessage(Component.translatable("set " + StringArgumentType.getString(ctx, "player") + "'s data " + BoolArgumentType.getBool(ctx, "skip")).withStyle(ChatFormatting.YELLOW), false);
 
                                     return 1;
                                 } catch (CommunicationsException ignored) {
                                 } catch (Exception e) {
-                                    ctx.getSource().getServer().getPlayerManager().broadcast(Text.translatable("THERE WERE SOME ERRORS : \n" + e.getMessage()).formatted(Formatting.RED), false);
+                                    ctx.getSource().getServer().getPlayerList().broadcastSystemMessage(Component.translatable("THERE WERE SOME ERRORS : \n" + e.getMessage()).withStyle(ChatFormatting.RED), false);
                                     LOGGER.error("THERE WERE SOME ERRORS :");
                                     e.printStackTrace();
 
@@ -172,7 +170,7 @@ public class MPDS implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 dispatcher.register(literal("showskip")
-                .requires(source -> source.hasPermissionLevel(2))
+                .requires(MPDS::hasGameMasterPermission)
                         .executes(ctx -> {
                             ResultSet skiprs;
                             StringBuilder skipp = new StringBuilder();
@@ -186,17 +184,17 @@ public class MPDS implements ModInitializer {
                                         skipp.append("・").append(skiprs.getString("Name")).append("\n");
                                     }
 
-                                    ServerPlayerEntity player;
+                                    ServerPlayer player;
                                     if ((player = ctx.getSource().getPlayer()) != null) {
-                                        player.sendMessage(Text.of(skipp.toString()));
+                                        player.sendSystemMessage(Component.nullToEmpty(skipp.toString()));
                                     } else {
-                                        ctx.getSource().getServer().sendMessage(Text.of(skipp.toString()));
+                                        ctx.getSource().getServer().sendSystemMessage(Component.nullToEmpty(skipp.toString()));
                                     }
 
                                     return 1;
                                 } catch (CommunicationsException ignored) {
                                 } catch (Exception e) {
-                                    ctx.getSource().getServer().getPlayerManager().broadcast(Text.translatable("THERE WERE SOME ERRORS : \n" + e.getMessage()).formatted(Formatting.RED), false);
+                                    ctx.getSource().getServer().getPlayerList().broadcastSystemMessage(Component.translatable("THERE WERE SOME ERRORS : \n" + e.getMessage()).withStyle(ChatFormatting.RED), false);
                                     LOGGER.error("THERE WERE SOME ERRORS :");
                                     e.printStackTrace();
 
@@ -209,17 +207,17 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsdefeated")
-                    .requires(source -> source.hasPermissionLevel(2))
-                    .then(argument("player", EntityArgumentType.player())
+                    .requires(MPDS::hasGameMasterPermission)
+                    .then(argument("player", EntityArgument.player())
                         .then(argument("flag", StringArgumentType.word())
                             .then(argument("value", BoolArgumentType.bool())
                                 .executes(ctx -> {
-                                    ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                    ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
                                     String flag = StringArgumentType.getString(ctx, "flag");
                                     boolean value = BoolArgumentType.getBool(ctx, "value");
 
                                     String name = target.getName().getString();
-                                    String uuid = target.getUuidAsString();
+                                    String uuid = target.getStringUUID();
 
                                     try {
                                         boolean previous;
@@ -241,7 +239,7 @@ public class MPDS implements ModInitializer {
                                                 sql.setCaveDefeated(name, uuid, value);
                                             }
                                             default -> {
-                                                ctx.getSource().sendMessage(Text.literal(
+                                                ctx.getSource().sendSystemMessage(Component.literal(
                                                     "Unknown flag. Use: SkyIslandDefeated, DesertDefeated, OceanDefeated, CaveDefeated"));
                                                 return 0;
                                             }
@@ -249,11 +247,11 @@ public class MPDS implements ModInitializer {
 
                                         boolean changed = previous != value;
 
-                                        ctx.getSource().sendMessage(Text.literal(
+                                        ctx.getSource().sendSystemMessage(Component.literal(
                                             "Set " + name + " " + flag + " = " + value + (changed ? "" : " (unchanged)")));
                                         return changed ? 1 : 0;
                                     } catch (Exception e) {
-                                        ctx.getSource().sendMessage(Text.literal("Error updating flag: " + e.getMessage()).formatted(Formatting.RED));
+                                        ctx.getSource().sendSystemMessage(Component.literal("Error updating flag: " + e.getMessage()).withStyle(ChatFormatting.RED));
                                         LOGGER.error("Error updating defeated flag {} for {}", flag, name, e);
                                         return 0;
                                     }
@@ -264,23 +262,23 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdssoulboundmax")
-                    .requires(source -> source.hasPermissionLevel(2))
-                    .then(argument("player", EntityArgumentType.player())
+                    .requires(MPDS::hasGameMasterPermission)
+                    .then(argument("player", EntityArgument.player())
                         .then(argument("delta", IntegerArgumentType.integer())
                             .executes(ctx -> {
-                                ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
                                 int delta = IntegerArgumentType.getInteger(ctx, "delta");
 
                                 String name = target.getName().getString();
-                                String uuid = target.getUuidAsString();
+                                String uuid = target.getStringUUID();
 
                                 try {
                                     sql.adjustSoulboundMax(name, uuid, delta);
-                                    ctx.getSource().sendMessage(Text.literal(
+                                    ctx.getSource().sendSystemMessage(Component.literal(
                                         "Adjusted " + name + " SoulboundMax by " + delta));
                                     return 1;
                                 } catch (Exception e) {
-                                    ctx.getSource().sendMessage(Text.literal("Error updating SoulboundMax: " + e.getMessage()).formatted(Formatting.RED));
+                                    ctx.getSource().sendSystemMessage(Component.literal("Error updating SoulboundMax: " + e.getMessage()).withStyle(ChatFormatting.RED));
                                     LOGGER.error("Error adjusting SoulboundMax for {}", name, e);
                                     return 0;
                                 }
@@ -291,17 +289,17 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsgrantbossreward")
-                    .requires(source -> source.hasPermissionLevel(2))
-                    .then(argument("player", EntityArgumentType.player())
+                    .requires(MPDS::hasGameMasterPermission)
+                    .then(argument("player", EntityArgument.player())
                         .then(argument("flag", StringArgumentType.word())
                             .then(argument("delta", IntegerArgumentType.integer())
                                 .executes(ctx -> {
-                                    ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                    ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
                                     String flag = StringArgumentType.getString(ctx, "flag");
                                     int delta = IntegerArgumentType.getInteger(ctx, "delta");
 
                                     String name = target.getName().getString();
-                                    String uuid = target.getUuidAsString();
+                                    String uuid = target.getStringUUID();
 
                                     try {
                                         boolean defeated;
@@ -331,24 +329,24 @@ public class MPDS implements ModInitializer {
                                                 }
                                             }
                                             default -> {
-                                                ctx.getSource().sendMessage(Text.literal(
+                                                ctx.getSource().sendSystemMessage(Component.literal(
                                                     "Unknown flag. Use: SkyIslandDefeated, DesertDefeated, OceanDefeated, CaveDefeated"));
                                                 return 0;
                                             }
                                         }
 
                                         if (defeated) {
-                                            ctx.getSource().sendMessage(Text.literal(
+                                            ctx.getSource().sendSystemMessage(Component.literal(
                                                 name + " already has " + flag + "=true; SoulboundMax not changed."));
                                             return 0;
                                         }
 
                                         sql.adjustSoulboundMax(name, uuid, delta);
-                                        ctx.getSource().sendMessage(Text.literal(
+                                        ctx.getSource().sendSystemMessage(Component.literal(
                                             "Granted boss reward for " + name + ": " + flag + "=true, SoulboundMax +" + delta));
                                         return 1;
                                     } catch (Exception e) {
-                                        ctx.getSource().sendMessage(Text.literal("Error granting boss reward: " + e.getMessage()).formatted(Formatting.RED));
+                                        ctx.getSource().sendSystemMessage(Component.literal("Error granting boss reward: " + e.getMessage()).withStyle(ChatFormatting.RED));
                                         LOGGER.error("Error granting boss reward {} for {}", flag, name, e);
                                         return 0;
                                     }
@@ -359,21 +357,21 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsgetsoulboundmax")
-                    .requires(source -> source.hasPermissionLevel(2))
-                    .then(argument("player", EntityArgumentType.player())
+                    .requires(MPDS::hasGameMasterPermission)
+                    .then(argument("player", EntityArgument.player())
                         .executes(ctx -> {
-                            ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                            ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
 
                             String name = target.getName().getString();
-                            String uuid = target.getUuidAsString();
+                            String uuid = target.getStringUUID();
 
                             try {
                                 int max = sql.getSoulboundMax(name, uuid);
-                                ctx.getSource().sendMessage(Text.literal(
+                                ctx.getSource().sendSystemMessage(Component.literal(
                                     name + " SoulboundMax=" + max));
                                 return 1;
                             } catch (Exception e) {
-                                ctx.getSource().sendMessage(Text.literal("Error reading SoulboundMax: " + e.getMessage()).formatted(Formatting.RED));
+                                ctx.getSource().sendSystemMessage(Component.literal("Error reading SoulboundMax: " + e.getMessage()).withStyle(ChatFormatting.RED));
                                 LOGGER.error("Error reading SoulboundMax for {}", name, e);
                                 return 0;
                             }
@@ -384,22 +382,22 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsstage1")
-                    .requires(source -> source.hasPermissionLevel(2))
-                    .then(argument("player", EntityArgumentType.player())
+                    .requires(MPDS::hasGameMasterPermission)
+                    .then(argument("player", EntityArgument.player())
                         .then(argument("value", BoolArgumentType.bool())
                             .executes(ctx -> {
-                                ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
                                 boolean value = BoolArgumentType.getBool(ctx, "value");
 
                                 String name = target.getName().getString();
-                                String uuid = target.getUuidAsString();
+                                String uuid = target.getStringUUID();
 
                                 try {
                                     sql.setStage1Cleared(name, uuid, value);
-                                    ctx.getSource().sendMessage(Text.literal("Set " + name + " Stage1Cleared = " + value));
+                                    ctx.getSource().sendSystemMessage(Component.literal("Set " + name + " Stage1Cleared = " + value));
                                     return 1;
                                 } catch (Exception e) {
-                                    ctx.getSource().sendMessage(Text.literal("Error updating Stage1Cleared: " + e.getMessage()).formatted(Formatting.RED));
+                                    ctx.getSource().sendSystemMessage(Component.literal("Error updating Stage1Cleared: " + e.getMessage()).withStyle(ChatFormatting.RED));
                                     LOGGER.error("Error updating Stage1Cleared for {}", name, e);
                                     return 0;
                                 }
@@ -410,29 +408,29 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsremovecustomid")
-                    .requires(source -> source.hasPermissionLevel(2))
-                    .then(argument("player", EntityArgumentType.player())
+                    .requires(MPDS::hasGameMasterPermission)
+                    .then(argument("player", EntityArgument.player())
                         .then(argument("key", StringArgumentType.word())
                             .then(argument("value", StringArgumentType.word())
                                 .executes(ctx -> {
-                                    ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                    ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
                                     String key = StringArgumentType.getString(ctx, "key");
                                     String value = StringArgumentType.getString(ctx, "value");
 
                                     if (wrappedOps == null) {
-                                        ctx.getSource().sendMessage(Text.literal("MPDS registry ops not ready yet.").formatted(Formatting.RED));
+                                        ctx.getSource().sendSystemMessage(Component.literal("MPDS registry ops not ready yet.").withStyle(ChatFormatting.RED));
                                         return 0;
                                     }
 
                                     String name = target.getName().getString();
-                                    String uuid = target.getUuidAsString();
+                                    String uuid = target.getStringUUID();
 
                                     try {
                                         int removed = removeCustomDataFromDbInventories(uuid, key, value);
-                                        ctx.getSource().sendMessage(Text.literal("Removed " + removed + " item(s) from " + name + " DB soulbound inventories for " + key + "=" + value));
+                                        ctx.getSource().sendSystemMessage(Component.literal("Removed " + removed + " item(s) from " + name + " DB soulbound inventories for " + key + "=" + value));
                                         return 1;
                                     } catch (Exception e) {
-                                        ctx.getSource().sendMessage(Text.literal("Error removing items from DB: " + e.getMessage()).formatted(Formatting.RED));
+                                        ctx.getSource().sendSystemMessage(Component.literal("Error removing items from DB: " + e.getMessage()).withStyle(ChatFormatting.RED));
                                         LOGGER.error("Error removing custom data items from DB for {} {}={}", name, key, value, e);
                                         return 0;
                                     }
@@ -443,18 +441,18 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsremovecustomidself")
-                    .requires(source -> source.hasPermissionLevel(2))
+                    .requires(MPDS::hasGameMasterPermission)
                     .then(argument("key", StringArgumentType.word())
                         .then(argument("value", StringArgumentType.word())
                             .executes(ctx -> {
                                 if (wrappedOps == null) {
-                                    ctx.getSource().sendMessage(Text.literal("MPDS registry ops not ready yet.").formatted(Formatting.RED));
+                                    ctx.getSource().sendSystemMessage(Component.literal("MPDS registry ops not ready yet.").withStyle(ChatFormatting.RED));
                                     return 0;
                                 }
 
-                                ServerPlayerEntity self = ctx.getSource().getPlayer();
+                                ServerPlayer self = ctx.getSource().getPlayer();
                                 if (self == null) {
-                                    ctx.getSource().sendMessage(Text.literal("Players only.").formatted(Formatting.RED));
+                                    ctx.getSource().sendSystemMessage(Component.literal("Players only.").withStyle(ChatFormatting.RED));
                                     return 0;
                                 }
 
@@ -462,12 +460,12 @@ public class MPDS implements ModInitializer {
                                 String value = StringArgumentType.getString(ctx, "value");
 
                                 try {
-                                    int removed = removeCustomDataFromDbInventories(self.getUuidAsString(), key, value);
-                                    self.sendMessage(Text.literal("Removed " + removed + " item(s) from your DB soulbound inventories for " + key + "=" + value)
-                                            .formatted(Formatting.YELLOW));
+                                    int removed = removeCustomDataFromDbInventories(self.getStringUUID(), key, value);
+                                    self.sendSystemMessage(Component.literal("Removed " + removed + " item(s) from your DB soulbound inventories for " + key + "=" + value)
+                                            .withStyle(ChatFormatting.YELLOW));
                                     return 1;
                                 } catch (Exception e) {
-                                    self.sendMessage(Text.literal("Error removing items from DB: " + e.getMessage()).formatted(Formatting.RED));
+                                    self.sendSystemMessage(Component.literal("Error removing items from DB: " + e.getMessage()).withStyle(ChatFormatting.RED));
                                     LOGGER.error("Error removing custom data items from DB for {} {}={}", self.getName().getString(), key, value, e);
                                     return 0;
                                 }
@@ -475,10 +473,10 @@ public class MPDS implements ModInitializer {
             )
         );
 
-        ServerLifecycleEvents.SERVER_STARTING.register(server -> wrappedOps = server.getRegistryManager().getOps(JsonOps.INSTANCE));
+        ServerLifecycleEvents.SERVER_STARTING.register(server -> wrappedOps = server.registryAccess().createSerializationContext(JsonOps.INSTANCE));
 
-        PayloadTypeRegistry.playC2S().register(ReturnRemoveRequestPayload.PACKET_ID, ReturnRemoveRequestPayload.codec);
-        PayloadTypeRegistry.playS2C().register(ReturnRemoveResponsePayload.PACKET_ID, ReturnRemoveResponsePayload.codec);
+        PayloadTypeRegistry.serverboundPlay().register(ReturnRemoveRequestPayload.PACKET_ID, ReturnRemoveRequestPayload.codec);
+        PayloadTypeRegistry.clientboundPlay().register(ReturnRemoveResponsePayload.PACKET_ID, ReturnRemoveResponsePayload.codec);
 
         ServerPlayNetworking.registerGlobalReceiver(ReturnRemoveRequestPayload.PACKET_ID, (payload, context) -> {
             context.server().execute(() -> {
@@ -494,10 +492,10 @@ public class MPDS implements ModInitializer {
                         String value = e.value();
 
                         removedInv += removeCustomDataFromLiveInventories(context.player(), key, value);
-                        removedDb += removeCustomDataFromDbInventories(context.player().getUuidAsString(), key, value);
+                        removedDb += removeCustomDataFromDbInventories(context.player().getStringUUID(), key, value);
 
                         remainingInv += countCustomDataInLiveInventories(context.player(), key, value);
-                        remainingDb += countCustomDataInDbInventories(context.player().getUuidAsString(), key, value);
+                        remainingDb += countCustomDataInDbInventories(context.player().getStringUUID(), key, value);
                     }
 
                     ServerPlayNetworking.send(context.player(), new ReturnRemoveResponsePayload(
@@ -535,7 +533,7 @@ public class MPDS implements ModInitializer {
         LOGGER.info("MPDS loaded");
     }
 
-    private static int removeCustomDataFromLiveInventories(ServerPlayerEntity player, String key, String value) {
+    private static int removeCustomDataFromLiveInventories(ServerPlayer player, String key, String value) {
         if (player == null || key == null || value == null || key.isBlank() || value.isBlank()) {
             return 0;
         }
@@ -543,49 +541,49 @@ public class MPDS implements ModInitializer {
         int removed = 0;
 
         var inv = player.getInventory();
-        for (int i = 0; i < inv.size(); i++) {
-            ItemStack stack = inv.getStack(i);
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack stack = inv.getItem(i);
             if (!stack.isEmpty() && matchesCustomData(stack, key, value)) {
-                inv.setStack(i, ItemStack.EMPTY);
+                inv.setItem(i, ItemStack.EMPTY);
                 removed++;
             }
         }
 
         var ender = player.getEnderChestInventory();
-        for (int i = 0; i < ender.size(); i++) {
-            ItemStack stack = ender.getStack(i);
+        for (int i = 0; i < ender.getContainerSize(); i++) {
+            ItemStack stack = ender.getItem(i);
             if (!stack.isEmpty() && matchesCustomData(stack, key, value)) {
-                ender.setStack(i, ItemStack.EMPTY);
+                ender.setItem(i, ItemStack.EMPTY);
                 removed++;
             }
         }
 
         if (removed > 0) {
-            inv.markDirty();
-            ender.markDirty();
-            player.currentScreenHandler.sendContentUpdates();
+            inv.setChanged();
+            ender.setChanged();
+            player.containerMenu.broadcastChanges();
         }
 
         return removed;
     }
 
-    private static int countCustomDataInLiveInventories(ServerPlayerEntity player, String key, String value) {
+    private static int countCustomDataInLiveInventories(ServerPlayer player, String key, String value) {
         if (player == null || key == null || value == null || key.isBlank() || value.isBlank()) {
             return 0;
         }
 
         int count = 0;
         var inv = player.getInventory();
-        for (int i = 0; i < inv.size(); i++) {
-            ItemStack stack = inv.getStack(i);
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack stack = inv.getItem(i);
             if (!stack.isEmpty() && matchesCustomData(stack, key, value)) {
                 count++;
             }
         }
 
         var ender = player.getEnderChestInventory();
-        for (int i = 0; i < ender.size(); i++) {
-            ItemStack stack = ender.getStack(i);
+        for (int i = 0; i < ender.getContainerSize(); i++) {
+            ItemStack stack = ender.getItem(i);
             if (!stack.isEmpty() && matchesCustomData(stack, key, value)) {
                 count++;
             }
@@ -769,11 +767,11 @@ public class MPDS implements ModInitializer {
         if (stack == null || stack.isEmpty() || key == null || value == null) {
             return false;
         }
-        NbtComponent custom = stack.get(DataComponentTypes.CUSTOM_DATA);
+        CustomData custom = stack.get(DataComponents.CUSTOM_DATA);
         if (custom == null) {
             return false;
         }
-        NbtCompound nbt = custom.copyNbt();
+        CompoundTag nbt = custom.copyTag();
         String actual = nbt.getString(key).orElse("");
         return value.equals(actual);
     }
@@ -785,7 +783,11 @@ public class MPDS implements ModInitializer {
     private record FilterResult(String newValue, int removedCount) {
     }
 
-    public static void playSound(ServerPlayerEntity player, SoundEvent event) {
-        player.playSoundToPlayer(event, SoundCategory.PLAYERS, 1f, 1f);
+    public static void playSound(ServerPlayer player, SoundEvent event) {
+        player.level().playSound(null, player.getX(), player.getY(), player.getZ(), event, SoundSource.PLAYERS, 1f, 1f);
+    }
+
+    private static boolean hasGameMasterPermission(net.minecraft.commands.CommandSourceStack source) {
+        return source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
     }
 }

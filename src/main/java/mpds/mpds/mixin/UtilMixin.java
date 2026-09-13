@@ -1,19 +1,20 @@
 package mpds.mpds.mixin;
 
-import net.minecraft.util.Util;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.nio.file.Path;
+import java.nio.file.CopyOption;
 import java.util.function.BooleanSupplier;
+import net.minecraft.util.Util;
 
 @Mixin(Util.class)
 public class UtilMixin {
 
-    @Inject(method = "renameTask(Ljava/nio/file/Path;Ljava/nio/file/Path;)Ljava/util/function/BooleanSupplier;", at = @At("RETURN"), cancellable = true)
-    private static void mpds_wrapRenameTask(Path src, Path dest, CallbackInfoReturnable<BooleanSupplier> cir) {
+    @Inject(method = "createRenamer(Ljava/nio/file/Path;Ljava/nio/file/Path;[Ljava/nio/file/CopyOption;)Ljava/util/function/BooleanSupplier;", at = @At("RETURN"), cancellable = true)
+    private static void mpds_wrapRenameTask(Path src, Path dest, CopyOption[] options, CallbackInfoReturnable<BooleanSupplier> cir) {
         BooleanSupplier original = cir.getReturnValue();
 
         cir.setReturnValue(() -> {
@@ -33,7 +34,7 @@ public class UtilMixin {
                 if (t instanceof Error error) {
                     throw error;
                 }
-                Util.throwUnchecked(t);
+                Util.throwAsRuntime(t);
                 return false;
             }
         });

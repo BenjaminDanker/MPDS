@@ -2,18 +2,16 @@ package mpds.mpds;
 
 import com.google.gson.JsonParser;
 import mpds.mpds.mixin.HungerManagerAccessor;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.NbtComponent;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.inventory.EnderChestInventory;
-import net.minecraft.inventory.Inventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.network.packet.s2c.play.UpdateSelectedSlotS2CPacket;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.Hand;
-import net.minecraft.util.collection.DefaultedList;
-
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.game.ClientboundSetHeldSlotPacket;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.inventory.PlayerEnderChestContainer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -80,24 +78,24 @@ public class sqlPlayer {
         );
     }
 
-    public static void sqlToPlayer(ServerPlayerEntity player, ResultSet resultSet) throws SQLException {
+    public static void sqlToPlayer(ServerPlayer player, ResultSet resultSet) throws SQLException {
         sqlToPlayer(player, readRow(resultSet));
     }
 
-    public static void sqlToPlayer(ServerPlayerEntity player, SqlRow row) {
-        if (SA) player.setAir(row.air());
+    public static void sqlToPlayer(ServerPlayer player, SqlRow row) {
+        if (SA) player.setAirSupply(row.air());
 
         if (SH) player.setHealth(row.health());
 
         if (SF) {
-            ((HungerManagerAccessor) player.getHungerManager()).mpds$setExhaustion(row.exhaustion());
-            player.getHungerManager().setFoodLevel(row.foodLevel());
-            player.getHungerManager().setSaturationLevel(row.saturationLevel());
-            ((HungerManagerAccessor) player.getHungerManager()).mpds$setFoodTickTimer(row.foodTickTimer());
+            ((HungerManagerAccessor) player.getFoodData()).mpds$setExhaustion(row.exhaustion());
+            player.getFoodData().setFoodLevel(row.foodLevel());
+            player.getFoodData().setSaturation(row.saturationLevel());
+            ((HungerManagerAccessor) player.getFoodData()).mpds$setFoodTickTimer(row.foodTickTimer());
         }
 
         if (SL) {
-            player.setExperienceLevel(row.experienceLevel());
+            player.setExperienceLevels(row.experienceLevel());
             player.experienceProgress = row.experienceProgress();
         }
 
@@ -133,7 +131,7 @@ public class sqlPlayer {
             }
 
             player.getInventory().setSelectedSlot(row.selectedSlot());
-            player.networkHandler.sendPacket(new UpdateSelectedSlotS2CPacket(row.selectedSlot()));
+            player.connection.send(new ClientboundSetHeldSlotPacket(row.selectedSlot()));
 
             String mainStored = safeString(row.main());
             if (!mainStored.isEmpty()) {
@@ -161,11 +159,11 @@ public class sqlPlayer {
                         return;
                     }
                     int idx = Integer.parseInt(compounds[1]);
-                    net.minecraft.entity.EquipmentSlot slot = switch (idx) {
-                        case 0 -> net.minecraft.entity.EquipmentSlot.FEET;
-                        case 1 -> net.minecraft.entity.EquipmentSlot.LEGS;
-                        case 2 -> net.minecraft.entity.EquipmentSlot.CHEST;
-                        case 3 -> net.minecraft.entity.EquipmentSlot.HEAD;
+                    net.minecraft.world.entity.EquipmentSlot slot = switch (idx) {
+                        case 0 -> net.minecraft.world.entity.EquipmentSlot.FEET;
+                        case 1 -> net.minecraft.world.entity.EquipmentSlot.LEGS;
+                        case 2 -> net.minecraft.world.entity.EquipmentSlot.CHEST;
+                        case 3 -> net.minecraft.world.entity.EquipmentSlot.HEAD;
                         default -> null;
                     };
                     if (slot != null) {
@@ -177,34 +175,34 @@ public class sqlPlayer {
 
         String effectsStored = safeString(row.effects());
         if (SEf && !effectsStored.isEmpty()) {
-            List.of(effectsStored.split("&")).forEach(compound -> player.addStatusEffect(StatusEffectInstance.CODEC.parse(wrappedOps, JsonParser.parseString(compound)).resultOrPartial(LOGGER::error).orElseThrow()));
+            List.of(effectsStored.split("&")).forEach(compound -> player.addEffect(MobEffectInstance.CODEC.parse(wrappedOps, JsonParser.parseString(compound)).resultOrPartial(LOGGER::error).orElseThrow()));
         }
     }
 
-    public sqlPlayer(ServerPlayerEntity player) {
+    public sqlPlayer(ServerPlayer player) {
         this.name = player.getName().getString();
-        this.uuid = player.getUuidAsString();
-        this.air = player.getAir();
+        this.uuid = player.getStringUUID();
+        this.air = player.getAirSupply();
         this.health = player.getHealth();
-        this.exhaustion = ((HungerManagerAccessor) player.getHungerManager()).mpds$getExhaustion();
-        this.foodLevel = player.getHungerManager().getFoodLevel();
-        this.saturationLevel = player.getHungerManager().getSaturationLevel();
-        this.foodTickTimer = ((HungerManagerAccessor) player.getHungerManager()).mpds$getFoodTickTimer();
+        this.exhaustion = ((HungerManagerAccessor) player.getFoodData()).mpds$getExhaustion();
+        this.foodLevel = player.getFoodData().getFoodLevel();
+        this.saturationLevel = player.getFoodData().getSaturationLevel();
+        this.foodTickTimer = ((HungerManagerAccessor) player.getFoodData()).mpds$getFoodTickTimer();
         this.experienceLevel = player.experienceLevel;
         this.experienceProgress = player.experienceProgress;
 
-        EnderChestInventory end = player.getEnderChestInventory();
+        PlayerEnderChestContainer end = player.getEnderChestInventory();
         this.enderChestInventory = "";
         if (SEn) {
             StringBuilder endresults = new StringBuilder();
-            for (int i = 0; i < end.size(); i++) {
-                ItemStack st = end.getStack(i);
+            for (int i = 0; i < end.getContainerSize(); i++) {
+                ItemStack st = end.getItem(i);
                 if (st.isEmpty() || !isSoulbound(st)) {
                     continue;
                 }
                 endresults.append(ItemStack.CODEC.encodeStart(wrappedOps, st).resultOrPartial(LOGGER::error).orElseThrow())
                     .append("~").append(i).append("&");
-                end.setStack(i, ItemStack.EMPTY);
+                end.setItem(i, ItemStack.EMPTY);
             }
             this.enderChestInventory = endresults.toString();
         }
@@ -215,50 +213,50 @@ public class sqlPlayer {
         this.armor = "";
 
         if (SI) {
-            ItemStack offhand = player.getStackInHand(Hand.OFF_HAND);
+            ItemStack offhand = player.getItemInHand(InteractionHand.OFF_HAND);
             if (!offhand.isEmpty() && isSoulbound(offhand)) {
                 this.off = ItemStack.CODEC.encodeStart(wrappedOps, offhand).resultOrPartial(LOGGER::error).orElseThrow().toString();
-                player.setStackInHand(Hand.OFF_HAND, ItemStack.EMPTY);
+                player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
             }
 
             StringBuilder mainresults = new StringBuilder();
             for (int i = 0; i < 36; i++) {
-                ItemStack st = player.getInventory().getStack(i);
+                ItemStack st = player.getInventory().getItem(i);
                 if (st.isEmpty() || !isSoulbound(st)) {
                     continue;
                 }
                 mainresults.append(ItemStack.CODEC.encodeStart(wrappedOps, st).resultOrPartial(LOGGER::error).orElseThrow())
                     .append("~").append(i).append("&");
-                player.getInventory().setStack(i, ItemStack.EMPTY);
+                player.getInventory().setItem(i, ItemStack.EMPTY);
             }
             this.main = mainresults.toString();
 
             StringBuilder armorresults = new StringBuilder();
             for (int i = 0; i < 4; i++) {
-                net.minecraft.entity.EquipmentSlot slot = switch (i) {
-                    case 0 -> net.minecraft.entity.EquipmentSlot.FEET;
-                    case 1 -> net.minecraft.entity.EquipmentSlot.LEGS;
-                    case 2 -> net.minecraft.entity.EquipmentSlot.CHEST;
-                    case 3 -> net.minecraft.entity.EquipmentSlot.HEAD;
+                net.minecraft.world.entity.EquipmentSlot slot = switch (i) {
+                    case 0 -> net.minecraft.world.entity.EquipmentSlot.FEET;
+                    case 1 -> net.minecraft.world.entity.EquipmentSlot.LEGS;
+                    case 2 -> net.minecraft.world.entity.EquipmentSlot.CHEST;
+                    case 3 -> net.minecraft.world.entity.EquipmentSlot.HEAD;
                     default -> null;
                 };
-                ItemStack st = slot == null ? ItemStack.EMPTY : player.getEquippedStack(slot);
+                ItemStack st = slot == null ? ItemStack.EMPTY : player.getItemBySlot(slot);
                 if (st.isEmpty() || !isSoulbound(st)) {
                     continue;
                 }
                 armorresults.append(ItemStack.CODEC.encodeStart(wrappedOps, st).resultOrPartial(LOGGER::error).orElseThrow())
                     .append("~").append(i).append("&");
                 if (slot != null) {
-                    player.equipStack(slot, ItemStack.EMPTY);
+                    player.setItemSlot(slot, ItemStack.EMPTY);
                 }
             }
             this.armor = armorresults.toString();
         }
 
         StringBuilder effectresults = new StringBuilder();
-        player.getStatusEffects().forEach(effect -> effectresults.append(StatusEffectInstance.CODEC.encodeStart(wrappedOps, effect).resultOrPartial(LOGGER::error).orElseThrow()).append("&"));
+        player.getActiveEffects().forEach(effect -> effectresults.append(MobEffectInstance.CODEC.encodeStart(wrappedOps, effect).resultOrPartial(LOGGER::error).orElseThrow()).append("&"));
         this.effects = effectresults.toString();
-        if (SEf) player.clearStatusEffects();
+        if (SEf) player.removeAllEffects();
     }
 
     private static String safeString(String value) {
@@ -270,19 +268,19 @@ public class sqlPlayer {
             return false;
         }
 
-        NbtComponent custom = stack.get(DataComponentTypes.CUSTOM_DATA);
+        CustomData custom = stack.get(DataComponents.CUSTOM_DATA);
         if (custom == null) {
             return false;
         }
 
-        NbtCompound nbt = custom.copyNbt();
+        CompoundTag nbt = custom.copyTag();
 
         String idType = nbt.getString(SOULBOUND_KEY).orElse("");
 
         return SOULBOUND_VALUE.equals(idType) || SOULBOUND_VALUE_CRAFTED.equals(idType);
     }
 
-    private static void purgeSoulboundFromPlayerInventory(ServerPlayerEntity player) {
+    private static void purgeSoulboundFromPlayerInventory(ServerPlayer player) {
         if (player == null) {
             return;
         }
@@ -290,108 +288,108 @@ public class sqlPlayer {
         PlayerInventoryAccessor.purgeSoulbound(player);
     }
 
-    private static void purgeSoulboundFromInventory(Inventory inventory) {
+    private static void purgeSoulboundFromInventory(Container inventory) {
         if (inventory == null) {
             return;
         }
-        for (int i = 0; i < inventory.size(); i++) {
-            ItemStack st = inventory.getStack(i);
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            ItemStack st = inventory.getItem(i);
             if (!st.isEmpty() && isSoulbound(st)) {
-                inventory.setStack(i, ItemStack.EMPTY);
+                inventory.setItem(i, ItemStack.EMPTY);
             }
         }
     }
 
-    private static void setOffhandPreserving(ServerPlayerEntity player, ItemStack stack) {
+    private static void setOffhandPreserving(ServerPlayer player, ItemStack stack) {
         if (player == null || stack == null || stack.isEmpty()) {
             return;
         }
 
-        ItemStack existing = player.getStackInHand(Hand.OFF_HAND);
+        ItemStack existing = player.getItemInHand(InteractionHand.OFF_HAND);
         if (existing.isEmpty()) {
-            player.setStackInHand(Hand.OFF_HAND, stack);
+            player.setItemInHand(InteractionHand.OFF_HAND, stack);
             return;
         }
 
         ItemStack existingCopy = existing.copy();
-        player.setStackInHand(Hand.OFF_HAND, ItemStack.EMPTY);
+        player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
 
-        boolean moved = player.getInventory().insertStack(existingCopy);
+        boolean moved = player.getInventory().add(existingCopy);
         if (!moved) {
-            EnderChestInventory end = player.getEnderChestInventory();
-            moved = end != null && end.addStack(existingCopy).isEmpty();
+            PlayerEnderChestContainer end = player.getEnderChestInventory();
+            moved = end != null && end.addItem(existingCopy).isEmpty();
         }
 
         if (moved) {
-            player.setStackInHand(Hand.OFF_HAND, stack);
+            player.setItemInHand(InteractionHand.OFF_HAND, stack);
             return;
         }
 
         // Couldn't move the existing offhand item; keep it and try to restore Soulbound into main inventory instead.
-        player.setStackInHand(Hand.OFF_HAND, existing);
-        boolean inserted = player.getInventory().insertStack(stack);
+        player.setItemInHand(InteractionHand.OFF_HAND, existing);
+        boolean inserted = player.getInventory().add(stack);
         if (!inserted) {
             LOGGER.warn("Could not restore Soulbound offhand item {} for {} (no space)", stack, player.getName().getString());
         }
     }
 
-    private static void equipArmorPreserving(ServerPlayerEntity player, net.minecraft.entity.EquipmentSlot slot, ItemStack stack) {
+    private static void equipArmorPreserving(ServerPlayer player, net.minecraft.world.entity.EquipmentSlot slot, ItemStack stack) {
         if (player == null || slot == null || stack == null || stack.isEmpty()) {
             return;
         }
 
-        ItemStack existing = player.getEquippedStack(slot);
+        ItemStack existing = player.getItemBySlot(slot);
         if (existing.isEmpty()) {
-            player.equipStack(slot, stack);
+            player.setItemSlot(slot, stack);
             return;
         }
 
         ItemStack existingCopy = existing.copy();
-        player.equipStack(slot, ItemStack.EMPTY);
+        player.setItemSlot(slot, ItemStack.EMPTY);
 
-        boolean moved = player.getInventory().insertStack(existingCopy);
+        boolean moved = player.getInventory().add(existingCopy);
         if (!moved) {
-            EnderChestInventory end = player.getEnderChestInventory();
-            moved = end != null && end.addStack(existingCopy).isEmpty();
+            PlayerEnderChestContainer end = player.getEnderChestInventory();
+            moved = end != null && end.addItem(existingCopy).isEmpty();
         }
 
         if (moved) {
-            player.equipStack(slot, stack);
+            player.setItemSlot(slot, stack);
             return;
         }
 
         // Couldn't move the existing armor; keep it and place Soulbound into main inventory instead.
-        player.equipStack(slot, existing);
-        boolean inserted = player.getInventory().insertStack(stack);
+        player.setItemSlot(slot, existing);
+        boolean inserted = player.getInventory().add(stack);
         if (!inserted) {
             LOGGER.warn("Could not restore Soulbound armor item {} for {} (no space)", stack, player.getName().getString());
         }
     }
 
-    private static void insertIntoInventoryPreserving(ServerPlayerEntity player, Inventory inventory, int preferredSlot, ItemStack stack) {
+    private static void insertIntoInventoryPreserving(ServerPlayer player, Container inventory, int preferredSlot, ItemStack stack) {
         if (player == null || inventory == null || stack == null || stack.isEmpty()) {
             return;
         }
 
-        if (preferredSlot >= 0 && preferredSlot < inventory.size() && inventory.getStack(preferredSlot).isEmpty()) {
-            inventory.setStack(preferredSlot, stack);
+        if (preferredSlot >= 0 && preferredSlot < inventory.getContainerSize() && inventory.getItem(preferredSlot).isEmpty()) {
+            inventory.setItem(preferredSlot, stack);
             return;
         }
 
-        int scanLimit = inventory.size();
+        int scanLimit = inventory.getContainerSize();
         if (inventory == player.getInventory()) {
-            scanLimit = Math.min(36, inventory.size());
+            scanLimit = Math.min(36, inventory.getContainerSize());
         }
 
         for (int i = 0; i < scanLimit; i++) {
-            if (inventory.getStack(i).isEmpty()) {
-                inventory.setStack(i, stack);
+            if (inventory.getItem(i).isEmpty()) {
+                inventory.setItem(i, stack);
                 return;
             }
         }
 
         if (inventory != player.getInventory()) {
-            boolean moved = player.getInventory().insertStack(stack);
+            boolean moved = player.getInventory().add(stack);
             if (moved) {
                 return;
             }
@@ -404,35 +402,35 @@ public class sqlPlayer {
         private PlayerInventoryAccessor() {
         }
 
-        private static void purgeSoulbound(ServerPlayerEntity player) {
+        private static void purgeSoulbound(ServerPlayer player) {
             if (player == null) {
                 return;
             }
 
             // main inventory
-            for (int i = 0; i < 36 && i < player.getInventory().size(); i++) {
-                ItemStack st = player.getInventory().getStack(i);
+            for (int i = 0; i < 36 && i < player.getInventory().getContainerSize(); i++) {
+                ItemStack st = player.getInventory().getItem(i);
                 if (!st.isEmpty() && isSoulbound(st)) {
-                    player.getInventory().setStack(i, ItemStack.EMPTY);
+                    player.getInventory().setItem(i, ItemStack.EMPTY);
                 }
             }
 
             // offhand
-            ItemStack off = player.getStackInHand(Hand.OFF_HAND);
+            ItemStack off = player.getItemInHand(InteractionHand.OFF_HAND);
             if (!off.isEmpty() && isSoulbound(off)) {
-                player.setStackInHand(Hand.OFF_HAND, ItemStack.EMPTY);
+                player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
             }
 
             // armor
-            for (net.minecraft.entity.EquipmentSlot slot : new net.minecraft.entity.EquipmentSlot[] {
-                net.minecraft.entity.EquipmentSlot.FEET,
-                net.minecraft.entity.EquipmentSlot.LEGS,
-                net.minecraft.entity.EquipmentSlot.CHEST,
-                net.minecraft.entity.EquipmentSlot.HEAD
+            for (net.minecraft.world.entity.EquipmentSlot slot : new net.minecraft.world.entity.EquipmentSlot[] {
+                net.minecraft.world.entity.EquipmentSlot.FEET,
+                net.minecraft.world.entity.EquipmentSlot.LEGS,
+                net.minecraft.world.entity.EquipmentSlot.CHEST,
+                net.minecraft.world.entity.EquipmentSlot.HEAD
             }) {
-                ItemStack st = player.getEquippedStack(slot);
+                ItemStack st = player.getItemBySlot(slot);
                 if (!st.isEmpty() && isSoulbound(st)) {
-                    player.equipStack(slot, ItemStack.EMPTY);
+                    player.setItemSlot(slot, ItemStack.EMPTY);
                 }
             }
         }

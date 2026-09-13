@@ -5,26 +5,22 @@ import mpds.mpds.sql;
 import mpds.mpds.sqlPlayer;
 import net.fabricmc.fabric.api.networking.v1.PacketSender;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayNetworkHandler;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import java.sql.ResultSet;
 
 import static mpds.mpds.MPDS.*;
-import static net.minecraft.sound.SoundEvents.*;
+import static net.minecraft.sounds.SoundEvents.*;
 
 public class Join {
 
-    public static void onjoin(ServerPlayNetworkHandler serverPlayNetworkHandler, PacketSender packetSender, MinecraftServer minecraftServer) {
-        ServerPlayerEntity player = serverPlayNetworkHandler.getPlayer();
+    public static void onjoin(ServerGamePacketListenerImpl serverPlayNetworkHandler, PacketSender packetSender, MinecraftServer minecraftServer) {
+        ServerPlayer player = serverPlayNetworkHandler.getPlayer();
         String playerN = player.getName().getString();
-        broken.add(player.getUuid());
+        broken.add(player.getUUID());
 
         new Thread(() -> {
-            String playerUuid = player.getUuidAsString();
+            String playerUuid = player.getStringUUID();
 
             // if (AJM)
             //     player.sendMessage(Text.translatable("loading " + playerN + "'s data...").formatted(Formatting.YELLOW));
@@ -41,7 +37,7 @@ public class Join {
                         // }
                         LOGGER.warn("skip loading because {}'s data includes skip list", playerN);
 
-                        broken.remove(player.getUuid());
+                        broken.remove(player.getUUID());
 
                         // playSound(player, BLOCK_GLASS_BREAK);
                         // player.playSound(BLOCK_GLASS_BREAK, 1f, 1f);
@@ -58,7 +54,7 @@ public class Join {
                                     //     player.sendMessage(Text.translatable("saved " + playerN + "'s correct data").formatted(Formatting.AQUA));
                                     LOGGER.info("saved {}'s correct data", playerN);
 
-                                    broken.remove(player.getUuid());
+                                    broken.remove(player.getUUID());
                                     // playSound(player, ENTITY_PLAYER_LEVELUP);
 
                                     return;
@@ -91,7 +87,7 @@ public class Join {
 
                         // playSound(player, ENTITY_PLAYER_LEVELUP);
                         sql.setServer(playerUuid);
-                        broken.remove(player.getUuid());
+                        broken.remove(player.getUUID());
 
                     } else {
                         Thread.sleep(1000);
@@ -103,7 +99,7 @@ public class Join {
                                 LOGGER.warn("COULD NOT FIND {}'s DATA!\nMADE NEW ONE!", playerN);
 
                                 // playSound(player, BLOCK_GLASS_BREAK);
-                                broken.remove(player.getUuid());
+                                broken.remove(player.getUUID());
                                 sql.setServer(playerUuid);
 
                                 return;

@@ -1,20 +1,20 @@
 package mpds.mpds.mixin;
 
-import net.minecraft.entity.player.HungerManager;
+import net.minecraft.world.food.FoodData;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
-@Mixin(HungerManager.class)
+@Mixin(FoodData.class)
 public interface HungerManagerAccessor {
-    @Accessor("foodTickTimer")
+    @Accessor("tickTimer")
     void mpds$setFoodTickTimer(int foodTickTimer);
 
-    @Accessor("foodTickTimer")
+    @Accessor("tickTimer")
     int mpds$getFoodTickTimer();
 
-    @Accessor("exhaustion")
+    @Accessor("exhaustionLevel")
     void mpds$setExhaustion(float exhaustion);
 
-    @Accessor("exhaustion")
+    @Accessor("exhaustionLevel")
     float mpds$getExhaustion();
 }

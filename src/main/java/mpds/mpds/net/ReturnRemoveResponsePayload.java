@@ -1,12 +1,11 @@
 package mpds.mpds.net;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
-
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
 
 public record ReturnRemoveResponsePayload(
         UUID requestId,
@@ -16,14 +15,14 @@ public record ReturnRemoveResponsePayload(
         int remainingInventory,
         int remainingDb,
         String error
-) implements CustomPayload {
-    public static final CustomPayload.Id<ReturnRemoveResponsePayload> PACKET_ID =
-            new CustomPayload.Id<>(Identifier.of("mpds", "return_remove"));
+) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<ReturnRemoveResponsePayload> PACKET_ID =
+            new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath("mpds", "return_remove"));
 
-    public static final PacketCodec<RegistryByteBuf, ReturnRemoveResponsePayload> codec =
-            PacketCodec.of(ReturnRemoveResponsePayload::write, ReturnRemoveResponsePayload::read);
+    public static final StreamCodec<RegistryFriendlyByteBuf, ReturnRemoveResponsePayload> codec =
+            StreamCodec.ofMember(ReturnRemoveResponsePayload::write, ReturnRemoveResponsePayload::read);
 
-    public static ReturnRemoveResponsePayload read(RegistryByteBuf buf) {
+    public static ReturnRemoveResponsePayload read(RegistryFriendlyByteBuf buf) {
         UUID id = new UUID(buf.readLong(), buf.readLong());
         boolean success = buf.readBoolean();
         int removedInv = buf.readInt();
@@ -34,7 +33,7 @@ public record ReturnRemoveResponsePayload(
         return new ReturnRemoveResponsePayload(id, success, removedInv, removedDb, remainingInv, remainingDb, error);
     }
 
-    public void write(RegistryByteBuf buf) {
+    public void write(RegistryFriendlyByteBuf buf) {
         buf.writeLong(requestId.getMostSignificantBits());
         buf.writeLong(requestId.getLeastSignificantBits());
         buf.writeBoolean(success);
@@ -46,11 +45,11 @@ public record ReturnRemoveResponsePayload(
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return PACKET_ID;
     }
 
-    private static String readStringBytes(RegistryByteBuf buf, int maxLen) {
+    private static String readStringBytes(RegistryFriendlyByteBuf buf, int maxLen) {
         int len = buf.readInt();
         if (len < 0 || len > maxLen) {
             throw new IllegalArgumentException("String length out of range: " + len);
@@ -60,7 +59,7 @@ public record ReturnRemoveResponsePayload(
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
-    private static void writeStringBytes(RegistryByteBuf buf, String value, int maxLen) {
+    private static void writeStringBytes(RegistryFriendlyByteBuf buf, String value, int maxLen) {
         byte[] bytes = value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
         if (bytes.length > maxLen) {
             throw new IllegalArgumentException("String too long: " + bytes.length);

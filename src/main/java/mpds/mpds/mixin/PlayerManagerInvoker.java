@@ -1,12 +1,12 @@
 package mpds.mpds.mixin;
 
-import net.minecraft.server.PlayerManager;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.PlayerList;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Invoker;
 
-@Mixin(PlayerManager.class)
+@Mixin(PlayerList.class)
 public interface PlayerManagerInvoker {
-    @Invoker("savePlayerData")
-    void invokesavePlayerData(ServerPlayerEntity player);
+    @Invoker("save")
+    void invokesavePlayerData(ServerPlayer player);
 }
