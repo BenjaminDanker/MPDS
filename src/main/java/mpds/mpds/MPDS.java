@@ -1,5 +1,7 @@
 package mpds.mpds;
 
+import com.silver.authorization.PermissionNodes;
+import com.silver.authorization.fabric.AuthorizationChecks;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
@@ -25,7 +27,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.Permissions;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.item.ItemStack;
@@ -39,7 +40,6 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -135,19 +135,26 @@ public class MPDS implements ModInitializer {
         SEf = Boolean.parseBoolean(config.get("SEf"));
 
         try {
+            sql.configurePendingDirectory(configDir.resolve("pending-saves"));
+        } catch (IOException e) {
+            LOGGER.error("Could not load MPDS pending-save queue", e);
+        }
+
+        try {
             sql.init();
         } catch (SQLException e) {
             LOGGER.error("FAIL TO CONNECT MYSQL");
             LOGGER.error("DID YOU CHANGE MPDS CONFIG?");
             e.printStackTrace();
         }
+        sql.startRecovery();
 
         ServerPlayConnectionEvents.JOIN.register(Join::onjoin);
         ServerPlayConnectionEvents.DISCONNECT.register(Disconnect::ondisconnect);
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(literal("updateskip")
-                .requires(MPDS::hasGameMasterPermission)
+                .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_SKIP_MANAGE))
                 .then(argument("player", StringArgumentType.word()).then(argument("skip", BoolArgumentType.bool())
                         .executes(ctx -> {
                             while (true) {
@@ -170,19 +177,14 @@ public class MPDS implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 dispatcher.register(literal("showskip")
-                .requires(MPDS::hasGameMasterPermission)
+                .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_SKIP_INSPECT))
                         .executes(ctx -> {
-                            ResultSet skiprs;
                             StringBuilder skipp = new StringBuilder();
 
                             while (true) {
                                 try {
-                                    skiprs = sql.showSkip();
-
-                                    while (skiprs.next()) {
-                                        if ("false".equals(skiprs.getString("skip"))) continue;
-                                        skipp.append("・").append(skiprs.getString("Name")).append("\n");
-                                    }
+                                    for (String skippedPlayer : sql.showSkippedPlayers())
+                                        skipp.append("・").append(skippedPlayer).append("\n");
 
                                     ServerPlayer player;
                                     if ((player = ctx.getSource().getPlayer()) != null) {
@@ -205,9 +207,26 @@ public class MPDS implements ModInitializer {
                 ));
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(literal("mpdscomplete")
+                .then(argument("action", StringArgumentType.word())
+                    .executes(ctx -> {
+                        ServerPlayer actor = ctx.getSource().getPlayer();
+                        String action = StringArgumentType.getString(ctx, "action").toLowerCase(Locale.ROOT);
+                        if (actor == null || !(action.equals("desert") || action.equals("cave"))) return 0;
+                        if (!actor.entityTags().contains("mpds_" + action + "_defeated")) return 0;
+                        try {
+                            sql.completeDefeatReward(actor.getName().getString(), actor.getStringUUID(), action);
+                            return 1;
+                        } catch (Exception failure) {
+                            LOGGER.error("Failed to record {} datapack completion for {}", action, actor.getName().getString(), failure);
+                            return 0;
+                        }
+                    }))));
+
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsdefeated")
-                    .requires(MPDS::hasGameMasterPermission)
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_PROGRESSION_MODIFY))
                     .then(argument("player", EntityArgument.player())
                         .then(argument("flag", StringArgumentType.word())
                             .then(argument("value", BoolArgumentType.bool())
@@ -262,7 +281,7 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdssoulboundmax")
-                    .requires(MPDS::hasGameMasterPermission)
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_INVENTORY_METADATA_MODIFY))
                     .then(argument("player", EntityArgument.player())
                         .then(argument("delta", IntegerArgumentType.integer())
                             .executes(ctx -> {
@@ -289,7 +308,7 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsgrantbossreward")
-                    .requires(MPDS::hasGameMasterPermission)
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_REWARD_GRANT))
                     .then(argument("player", EntityArgument.player())
                         .then(argument("flag", StringArgumentType.word())
                             .then(argument("delta", IntegerArgumentType.integer())
@@ -357,7 +376,7 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsgetsoulboundmax")
-                    .requires(MPDS::hasGameMasterPermission)
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_INVENTORY_METADATA_INSPECT))
                     .then(argument("player", EntityArgument.player())
                         .executes(ctx -> {
                             ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
@@ -382,7 +401,7 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsstage1")
-                    .requires(MPDS::hasGameMasterPermission)
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_PROGRESSION_MODIFY))
                     .then(argument("player", EntityArgument.player())
                         .then(argument("value", BoolArgumentType.bool())
                             .executes(ctx -> {
@@ -408,7 +427,7 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsremovecustomid")
-                    .requires(MPDS::hasGameMasterPermission)
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_INVENTORY_METADATA_MODIFY))
                     .then(argument("player", EntityArgument.player())
                         .then(argument("key", StringArgumentType.word())
                             .then(argument("value", StringArgumentType.word())
@@ -441,7 +460,6 @@ public class MPDS implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsremovecustomidself")
-                    .requires(MPDS::hasGameMasterPermission)
                     .then(argument("key", StringArgumentType.word())
                         .then(argument("value", StringArgumentType.word())
                             .executes(ctx -> {
@@ -523,6 +541,7 @@ public class MPDS implements ModInitializer {
         });
 
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            sql.stopRecovery();
             try {
                 sql.close();
             } catch (SQLException e) {
@@ -593,17 +612,14 @@ public class MPDS implements ModInitializer {
     }
 
     private static int countCustomDataInDbInventories(String uuid, String key, String value) throws SQLException {
+        var stored = sql.findPlayerData(uuid);
+        if (stored.isEmpty()) return 0;
+        var row = stored.orElseThrow().data();
+        String mainStored = safeString(row.main());
+        String offStored = safeString(row.off());
+        String armorStored = safeString(row.armor());
+        String enderStored = safeString(row.enderChestInventory());
         int count = 0;
-
-        ResultSet rs = sql.join(uuid);
-        if (!rs.next()) {
-            return 0;
-        }
-
-        String mainStored = safeString(rs.getString(DB_COL_MAIN));
-        String offStored = safeString(rs.getString(DB_COL_OFF));
-        String armorStored = safeString(rs.getString(DB_COL_ARMOR));
-        String enderStored = safeString(rs.getString(DB_COL_ENDER));
 
         count += countSlotEncodedList(mainStored, key, value);
         count += countSlotEncodedList(armorStored, key, value);
@@ -665,16 +681,13 @@ public class MPDS implements ModInitializer {
 
     private static int removeCustomDataFromDbInventories(String uuid, String key, String value) throws SQLException {
         int removed = 0;
-
-        ResultSet rs = sql.join(uuid);
-        if (!rs.next()) {
-            return 0;
-        }
-
-        String mainStored = safeString(rs.getString(DB_COL_MAIN));
-        String offStored = safeString(rs.getString(DB_COL_OFF));
-        String armorStored = safeString(rs.getString(DB_COL_ARMOR));
-        String enderStored = safeString(rs.getString(DB_COL_ENDER));
+        var stored = sql.findPlayerData(uuid);
+        if (stored.isEmpty()) return 0;
+        var row = stored.orElseThrow().data();
+        String mainStored = safeString(row.main());
+        String offStored = safeString(row.off());
+        String armorStored = safeString(row.armor());
+        String enderStored = safeString(row.enderChestInventory());
 
         FilterResult main = filterSlotEncodedList(mainStored, key, value);
         FilterResult armor = filterSlotEncodedList(armorStored, key, value);
@@ -690,14 +703,7 @@ public class MPDS implements ModInitializer {
             return 0;
         }
 
-        java.sql.PreparedStatement update = sql.connection.prepareStatement(
-            "UPDATE " + sql.TABLE_NAME + " SET main=?, off=?, armor=?, enderChestInventory=? WHERE uuid=?");
-        update.setString(1, main.newValue);
-        update.setString(2, off.newValue);
-        update.setString(3, armor.newValue);
-        update.setString(4, ender.newValue);
-        update.setString(5, uuid);
-        update.executeUpdate();
+        sql.updateInventories(uuid, main.newValue, off.newValue, armor.newValue, ender.newValue);
 
         return removed;
     }
@@ -787,7 +793,4 @@ public class MPDS implements ModInitializer {
         player.level().playSound(null, player.getX(), player.getY(), player.getZ(), event, SoundSource.PLAYERS, 1f, 1f);
     }
 
-    private static boolean hasGameMasterPermission(net.minecraft.commands.CommandSourceStack source) {
-        return source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
-    }
 }

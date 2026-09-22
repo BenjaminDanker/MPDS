@@ -179,6 +179,8 @@ public class sqlPlayer {
         }
     }
 
+    public sqlPlayer() { }
+
     public sqlPlayer(ServerPlayer player) {
         this.name = player.getName().getString();
         this.uuid = player.getStringUUID();

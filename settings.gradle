@@ -8,3 +8,7 @@ pluginManagement {
 		gradlePluginPortal()
 	}
 }
+
+includeBuild('../MC-Mods/Util-Mods/Authorization-Common')
+include 'network-authorization'
+project(':network-authorization').projectDir = file('../MC-Mods/Util-Mods/Network-Authorization/fabric')
