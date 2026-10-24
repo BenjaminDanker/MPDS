@@ -19,6 +19,18 @@ public final class Disconnect {
         if (broken.remove(playerId)) {
             MPDS.LOGGER.warn("Not saving MPDS state for {} because authoritative data was never loaded; vanilla player state is untouched",
                     playerName);
+            // If this server had locked the row before the load failed, the row is unchanged: give the lock back.
+            Thread release = new Thread(() -> {
+                try {
+                    sql.unlockUnapplied(playerId);
+                } catch (Exception failure) {
+                    MPDS.LOGGER.warn("Could not release the MPDS lock for {}; it expires when its lease stops being renewed",
+                            playerName, failure);
+                    sql.releaseOwnership(playerId);
+                }
+            }, "MPDS-Unlock-" + playerId);
+            release.setDaemon(true);
+            release.start();
             return;
         }
 
@@ -26,6 +38,7 @@ public final class Disconnect {
             // Capture on the server thread before disconnect cleanup; the durable queue retries the
             // idempotent UUID-keyed upsert after MariaDB returns, including across backend restarts.
             sql.queueDisconnectSave(new sqlPlayer(player));
+            sql.releaseOwnership(playerId); // the queued save keeps the lease alive until it is written
             MPDS.LOGGER.info("Queued MPDS state save for {}", playerName);
         } catch (RuntimeException failure) {
             MPDS.LOGGER.error("Could not capture MPDS state for {}; vanilla state was not cleared", playerName, failure);

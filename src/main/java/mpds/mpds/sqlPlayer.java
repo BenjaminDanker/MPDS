@@ -40,8 +40,15 @@ public class sqlPlayer {
     public String main;
     public String armor;
     public String effects;
+    /** Everything that is not soulbound, for family servers; null when this server does not sync the family inventory. */
+    public String famMain;
+    public String famOff;
+    public String famArmor;
+    public String famEnder;
 
+    /** {@code hasStats} is false for a row no server has saved yet (its stat columns are NULL). */
     public record SqlRow(
+        boolean hasStats,
         int air,
         float health,
         float exhaustion,
@@ -55,12 +62,17 @@ public class sqlPlayer {
         int selectedSlot,
         String main,
         String armor,
-        String effects
+        String effects,
+        String famMain,
+        String famOff,
+        String famArmor,
+        String famEnder
     ) {
     }
 
     public static SqlRow readRow(ResultSet resultSet) throws SQLException {
         return new SqlRow(
+            resultSet.getObject("Health") != null,
             resultSet.getInt("Air"),
             resultSet.getFloat("Health"),
             resultSet.getFloat("exhaustion"),
@@ -74,7 +86,11 @@ public class sqlPlayer {
             resultSet.getInt("selectedSlot"),
             resultSet.getString("main"),
             resultSet.getString("armor"),
-            resultSet.getString("effects")
+            resultSet.getString("effects"),
+            resultSet.getString("fmain"),
+            resultSet.getString("foff"),
+            resultSet.getString("farmor"),
+            resultSet.getString("fender")
         );
     }
 
@@ -83,21 +99,25 @@ public class sqlPlayer {
     }
 
     public static void sqlToPlayer(ServerPlayer player, SqlRow row) {
-        if (SA) player.setAirSupply(row.air());
+        // NULL stats would read as 0 (health 0 kills the player); keep this server's values until a save exists.
+        boolean stats = row.hasStats();
+        if (SA && stats) player.setAirSupply(row.air());
 
-        if (SH) player.setHealth(row.health());
+        if (SH && stats) player.setHealth(row.health());
 
-        if (SF) {
+        if (SF && stats) {
             ((HungerManagerAccessor) player.getFoodData()).mpds$setExhaustion(row.exhaustion());
             player.getFoodData().setFoodLevel(row.foodLevel());
             player.getFoodData().setSaturation(row.saturationLevel());
             ((HungerManagerAccessor) player.getFoodData()).mpds$setFoodTickTimer(row.foodTickTimer());
         }
 
-        if (SL) {
+        if (SL && stats) {
             player.setExperienceLevels(row.experienceLevel());
             player.experienceProgress = row.experienceProgress();
         }
+
+        applyFamily(player, row);
 
         if (SEn) {
             purgeSoulboundFromInventory(player.getEnderChestInventory());
@@ -209,6 +229,8 @@ public class sqlPlayer {
             this.enderChestInventory = endresults.toString();
         }
 
+        captureFamily(player);
+
         this.off = "";
         this.selectedSlot = player.getInventory().getSelectedSlot();
         this.main = "";
@@ -259,6 +281,115 @@ public class sqlPlayer {
         player.getActiveEffects().forEach(effect -> effectresults.append(MobEffectInstance.CODEC.encodeStart(wrappedOps, effect).resultOrPartial(LOGGER::error).orElseThrow()).append("&"));
         this.effects = effectresults.toString();
         if (SEf) player.removeAllEffects();
+    }
+
+
+    // ---- family inventory: the non-soulbound items that follow a player between the Magic, Tech and Magitech servers only
+
+    private static net.minecraft.world.entity.EquipmentSlot armorSlot(int index) {
+        return switch (index) {
+            case 0 -> net.minecraft.world.entity.EquipmentSlot.FEET;
+            case 1 -> net.minecraft.world.entity.EquipmentSlot.LEGS;
+            case 2 -> net.minecraft.world.entity.EquipmentSlot.CHEST;
+            case 3 -> net.minecraft.world.entity.EquipmentSlot.HEAD;
+            default -> null;
+        };
+    }
+
+    private static String encodeStack(ItemStack stack) {
+        return ItemStack.CODEC.encodeStart(wrappedOps, stack).resultOrPartial(LOGGER::error).orElseThrow().toString();
+    }
+
+    private static boolean family(ItemStack stack) {
+        return !stack.isEmpty() && !isSoulbound(stack);
+    }
+
+    private static String encodeContainer(Container container, int count) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            ItemStack stack = container.getItem(i);
+            if (family(stack)) {
+                out.append(encodeStack(stack)).append("~").append(i).append("&");
+            }
+        }
+        return out.toString();
+    }
+
+    private void captureFamily(ServerPlayer player) {
+        if (!FamilySync) {
+            return;
+        }
+        this.famMain = SI ? encodeContainer(player.getInventory(), 36) : "";
+        ItemStack offhand = player.getItemInHand(InteractionHand.OFF_HAND);
+        this.famOff = SI && family(offhand) ? encodeStack(offhand) : "";
+        StringBuilder armorOut = new StringBuilder();
+        if (SI) {
+            for (int i = 0; i < 4; i++) {
+                ItemStack stack = player.getItemBySlot(armorSlot(i));
+                if (family(stack)) {
+                    armorOut.append(encodeStack(stack)).append("~").append(i).append("&");
+                }
+            }
+        }
+        this.famArmor = armorOut.toString();
+        this.famEnder = SEn ? encodeContainer(player.getEnderChestInventory(), player.getEnderChestInventory().getContainerSize()) : "";
+    }
+
+    private static void clearFamilyItems(Container container, int count) {
+        for (int i = 0; i < count; i++) {
+            if (family(container.getItem(i))) {
+                container.setItem(i, ItemStack.EMPTY);
+            }
+        }
+    }
+
+    /** Replaces this server's non-soulbound items with the family copy. A copy that was never stored (null) changes nothing. */
+    private static void applyFamily(ServerPlayer player, SqlRow row) {
+        if (!FamilySync || row.famMain() == null) {
+            return;
+        }
+        if (SI) {
+            clearFamilyItems(player.getInventory(), 36);
+            for (int i = 0; i < 4; i++) {
+                net.minecraft.world.entity.EquipmentSlot slot = armorSlot(i);
+                if (family(player.getItemBySlot(slot))) {
+                    player.setItemSlot(slot, ItemStack.EMPTY);
+                }
+            }
+            if (family(player.getItemInHand(InteractionHand.OFF_HAND))) {
+                player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
+            }
+            applyEncoded(safeString(row.famMain()), (slot, stack) ->
+                insertIntoInventoryPreserving(player, player.getInventory(), slot, stack));
+            applyEncoded(safeString(row.famArmor()), (index, stack) -> {
+                net.minecraft.world.entity.EquipmentSlot slot = armorSlot(index);
+                if (slot != null) {
+                    equipArmorPreserving(player, slot, stack);
+                }
+            });
+            String off = safeString(row.famOff());
+            if (!off.isEmpty()) {
+                setOffhandPreserving(player, ItemStack.CODEC.parse(wrappedOps, JsonParser.parseString(off))
+                    .resultOrPartial(LOGGER::error).orElseThrow());
+            }
+        }
+        if (SEn) {
+            Container chest = player.getEnderChestInventory();
+            clearFamilyItems(chest, chest.getContainerSize());
+            applyEncoded(safeString(row.famEnder()), (slot, stack) -> insertIntoInventoryPreserving(player, chest, slot, stack));
+        }
+    }
+
+    private static void applyEncoded(String stored, java.util.function.BiConsumer<Integer, ItemStack> place) {
+        if (stored.isEmpty()) {
+            return;
+        }
+        for (String compound : stored.split("&")) {
+            String[] parts = compound.split("~");
+            ItemStack parsed = ItemStack.CODEC.parse(wrappedOps, JsonParser.parseString(parts[0]))
+                .resultOrPartial(LOGGER::error).orElseThrow();
+            place.accept(Integer.parseInt(parts[1]), parsed);
+        }
     }
 
     private static String safeString(String value) {

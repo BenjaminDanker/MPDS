@@ -76,6 +76,8 @@ public class MPDS implements ModInitializer {
     public static boolean SI;
 
     public static boolean SEf;
+    /** On the Magic, Tech and Magitech servers: everything a player carries (not just soulbound items) follows them between these servers only. */
+    public static boolean FamilySync;
 
     public static Gson gson = new Gson();
 
@@ -133,6 +135,7 @@ public class MPDS implements ModInitializer {
         SEn = Boolean.parseBoolean(config.get("SEn"));
         SI = Boolean.parseBoolean(config.get("SI"));
         SEf = Boolean.parseBoolean(config.get("SEf"));
+        FamilySync = Boolean.parseBoolean(config.get("FamilySync"));
 
         try {
             sql.configurePendingDirectory(configDir.resolve("pending-saves"));
@@ -212,7 +215,20 @@ public class MPDS implements ModInitializer {
                     .executes(ctx -> {
                         ServerPlayer actor = ctx.getSource().getPlayer();
                         String action = StringArgumentType.getString(ctx, "action").toLowerCase(Locale.ROOT);
-                        if (actor == null || !(action.equals("desert") || action.equals("cave"))) return 0;
+                        if (actor == null) return 0;
+                        if (action.equals("magic") || action.equals("tech")) {
+                            // Finishing a branch story: the story's completion function tags the player, then calls this.
+                            if (!actor.entityTags().contains("mpds_" + action + "_completed")) return 0;
+                            try {
+                                sql.completeBranch(actor.getName().getString(), actor.getStringUUID(), action);
+                                actor.removeTag("mpds_" + action + "_completed");
+                                return 1;
+                            } catch (Exception failure) {
+                                LOGGER.error("ALERT: could not record {} completion for {}", action, actor.getName().getString(), failure);
+                                return 0;
+                            }
+                        }
+                        if (!(action.equals("desert") || action.equals("cave"))) return 0;
                         if (!actor.entityTags().contains("mpds_" + action + "_defeated")) return 0;
                         try {
                             sql.completeDefeatReward(actor.getName().getString(), actor.getStringUUID(), action);
@@ -305,6 +321,106 @@ public class MPDS implements ModInitializer {
             )
         );
 
+        // Silent unlock: a secondary boss kill makes one element choosable. No chat message, no item.
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(
+                literal("mpdselementunlock")
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_PROGRESSION_MODIFY))
+                    .then(argument("player", EntityArgument.player())
+                        .then(argument("element", StringArgumentType.word())
+                            .executes(ctx -> {
+                                ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
+                                String element = StringArgumentType.getString(ctx, "element").toLowerCase(Locale.ROOT);
+                                int bit = switch (element) {
+                                    case "air" -> sql.ElementProgress.AIR;
+                                    case "water" -> sql.ElementProgress.WATER;
+                                    case "earth" -> sql.ElementProgress.EARTH;
+                                    case "fire" -> sql.ElementProgress.FIRE;
+                                    default -> 0;
+                                };
+                                if (bit == 0) {
+                                    ctx.getSource().sendSystemMessage(Component.literal("Unknown element. Use: air, water, earth, fire"));
+                                    return 0;
+                                }
+                                try {
+                                    boolean added = sql.unlockElement(target.getName().getString(), target.getStringUUID(), bit);
+                                    LOGGER.info("Element unlock {} for {} (new={})", element, target.getName().getString(), added);
+                                    return added ? 1 : 0;
+                                } catch (Exception e) {
+                                    LOGGER.error("Error unlocking element {} for {}", element, target.getName().getString(), e);
+                                    return 0;
+                                }
+                            })))
+            )
+        );
+
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(
+                literal("mpdsskillpoints")
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_PROGRESSION_MODIFY))
+                    .then(argument("player", EntityArgument.player())
+                        .then(argument("delta", IntegerArgumentType.integer(-1000, 1000))
+                            .executes(ctx -> {
+                                ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
+                                int delta = IntegerArgumentType.getInteger(ctx, "delta");
+                                try {
+                                    sql.addSkillPoints(target.getName().getString(), target.getStringUUID(), delta);
+                                    LOGGER.info("Skill points {} for {}", delta, target.getName().getString());
+                                    return 1;
+                                } catch (Exception e) {
+                                    LOGGER.error("Error adjusting skill points for {}", target.getName().getString(), e);
+                                    return 0;
+                                }
+                            })))
+            )
+        );
+
+        // Datapack-safe claims. Staff-only commands cannot run inside datapack functions, so a function tags the
+        // player (players cannot tag themselves) and calls one of these, which checks the tag and does the work.
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(literal("mpdselementclaim").executes(ctx -> {
+                ServerPlayer player = ctx.getSource().getPlayer();
+                if (player == null) return 0;
+                int claimed = 0;
+                for (String element : new String[] {"air", "water", "earth", "fire"}) {
+                    String tag = "mpds_unlock_" + element;
+                    if (!player.entityTags().contains(tag)) continue;
+                    player.removeTag(tag);
+                    int bit = switch (element) {
+                        case "air" -> sql.ElementProgress.AIR;
+                        case "water" -> sql.ElementProgress.WATER;
+                        case "earth" -> sql.ElementProgress.EARTH;
+                        default -> sql.ElementProgress.FIRE;
+                    };
+                    try {
+                        sql.unlockElement(player.getName().getString(), player.getStringUUID(), bit);
+                        claimed++;
+                    } catch (Exception failure) {
+                        LOGGER.error("Failed to record {} element unlock for {}", element, player.getName().getString(), failure);
+                    }
+                }
+                return claimed;
+            })));
+
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(literal("mpdsskillclaim").executes(ctx -> {
+                ServerPlayer player = ctx.getSource().getPlayer();
+                if (player == null) return 0;
+                int total = 0;
+                for (int points = 1; points <= 20; points++) {
+                    String tag = "mpds_points_" + points;
+                    if (!player.entityTags().contains(tag)) continue;
+                    player.removeTag(tag);
+                    try {
+                        sql.addSkillPoints(player.getName().getString(), player.getStringUUID(), points);
+                        total += points;
+                    } catch (Exception failure) {
+                        LOGGER.error("Failed to add {} skill points for {}", points, player.getName().getString(), failure);
+                    }
+                }
+                return total;
+            })));
+
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
             dispatcher.register(
                 literal("mpdsgrantbossreward")
@@ -321,46 +437,19 @@ public class MPDS implements ModInitializer {
                                     String uuid = target.getStringUUID();
 
                                     try {
-                                        boolean defeated;
-                                        switch (flag.toLowerCase(Locale.ROOT)) {
-                                            case "skyisland", "skyislanddefeated" -> {
-                                                defeated = sql.isSkyIslandDefeated(name, uuid);
-                                                if (!defeated) {
-                                                    sql.setSkyIslandDefeated(name, uuid, true);
-                                                }
-                                            }
-                                            case "desert", "desertdefeated" -> {
-                                                defeated = sql.isDesertDefeated(name, uuid);
-                                                if (!defeated) {
-                                                    sql.setDesertDefeated(name, uuid, true);
-                                                }
-                                            }
-                                            case "ocean", "oceandefeated" -> {
-                                                defeated = sql.isOceanDefeated(name, uuid);
-                                                if (!defeated) {
-                                                    sql.setOceanDefeated(name, uuid, true);
-                                                }
-                                            }
-                                            case "cave", "cavedefeated" -> {
-                                                defeated = sql.isCaveDefeated(name, uuid);
-                                                if (!defeated) {
-                                                    sql.setCaveDefeated(name, uuid, true);
-                                                }
-                                            }
-                                            default -> {
-                                                ctx.getSource().sendSystemMessage(Component.literal(
-                                                    "Unknown flag. Use: SkyIslandDefeated, DesertDefeated, OceanDefeated, CaveDefeated"));
-                                                return 0;
-                                            }
+                                        boolean granted;
+                                        try {
+                                            granted = mpds.mpds.api.BossRewards.grant(name, uuid, flag, delta);
+                                        } catch (IllegalArgumentException unknownFlag) {
+                                            ctx.getSource().sendSystemMessage(Component.literal(
+                                                "Unknown flag. Use: SkyIslandDefeated, DesertDefeated, OceanDefeated, CaveDefeated"));
+                                            return 0;
                                         }
-
-                                        if (defeated) {
+                                        if (!granted) {
                                             ctx.getSource().sendSystemMessage(Component.literal(
                                                 name + " already has " + flag + "=true; SoulboundMax not changed."));
                                             return 0;
                                         }
-
-                                        sql.adjustSoulboundMax(name, uuid, delta);
                                         ctx.getSource().sendSystemMessage(Component.literal(
                                             "Granted boss reward for " + name + ": " + flag + "=true, SoulboundMax +" + delta));
                                         return 1;
@@ -395,6 +484,30 @@ public class MPDS implements ModInitializer {
                                 return 0;
                             }
                         }))
+            )
+        );
+
+        // Used by Babylon when a player switches between the Magic and Tech branches.
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+            dispatcher.register(
+                literal("mpdsbranchswitch")
+                    .requires(AuthorizationChecks.requires(PermissionNodes.MPDS_PROGRESSION_MODIFY))
+                    .then(argument("player", EntityArgument.player())
+                        .then(argument("from", com.mojang.brigadier.arguments.StringArgumentType.word())
+                            .then(argument("to", com.mojang.brigadier.arguments.StringArgumentType.word())
+                                .executes(ctx -> {
+                                    ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
+                                    String from = com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "from");
+                                    String to = com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "to");
+                                    try {
+                                        sql.switchBranch(target.getName().getString(), target.getStringUUID(), from, to);
+                                        LOGGER.info("{} switched branch {} -> {}", target.getName().getString(), from, to);
+                                        return 1;
+                                    } catch (Exception e) {
+                                        LOGGER.error("ALERT: branch switch {} -> {} failed for {}", from, to, target.getName().getString(), e);
+                                        return 0;
+                                    }
+                                }))))
             )
         );
 
@@ -541,6 +654,8 @@ public class MPDS implements ModInitializer {
         });
 
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            // Players were disconnected during shutdown and their saves queued; write them now.
+            sql.flushPendingSavesNow();
             sql.stopRecovery();
             try {
                 sql.close();
@@ -679,7 +794,8 @@ public class MPDS implements ModInitializer {
         return count;
     }
 
-    private static int removeCustomDataFromDbInventories(String uuid, String key, String value) throws SQLException {
+    /** Removes items carrying custom data key=value from the player's stored (database) inventories; returns how many. */
+    public static int removeCustomDataFromDbInventories(String uuid, String key, String value) throws SQLException {
         int removed = 0;
         var stored = sql.findPlayerData(uuid);
         if (stored.isEmpty()) return 0;
