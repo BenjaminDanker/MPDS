@@ -13,7 +13,8 @@ import java.util.concurrent.Executors;
  * Story and boss rewards that the datapacks used to grant by running MPDS commands. When a player completes one of
  * these advancements, the reward is recorded here directly: the skill points of a magic chapter, the Magic or Tech
  * completion, and the desert and cave boss rewards. Advancements that are not in the table cost one map lookup.
- * Database work runs on {@link #IO}; the player's "already rewarded" tag is added on the server thread afterwards.
+ * Database work runs on {@link #IO}; a boss's "already rewarded" tag is added on the server thread afterwards, a
+ * branch's completion tag ({@code mpds_magic_completed}, {@code mpds_tech_completed}) at once.
  */
 public final class AdvancementRewards {
     private sealed interface Reward permits SkillPoints, Branch, Boss {
@@ -24,6 +25,9 @@ public final class AdvancementRewards {
     }
 
     private record Branch(String branch, int points) implements Reward {
+        String completedTag() {
+            return "mpds_" + branch + "_completed";
+        }
     }
 
     /** {@code tag} is the existing per-player tag that marks the reward as given (it skips the database next time). */
@@ -62,6 +66,10 @@ public final class AdvancementRewards {
         Reward reward = REWARDS.get(advancement);
         if (reward == null || (reward instanceof Boss boss && player.entityTags().contains(boss.tag()))) {
             return;
+        }
+        if (reward instanceof Branch branch) {
+            // The gates (the Tech portal, /skills ascend) read this tag, so it is added now, not after the database.
+            player.addTag(branch.completedTag());
         }
         MinecraftServer server = player.level().getServer();
         String name = player.getName().getString();
