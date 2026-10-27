@@ -607,7 +607,8 @@ public class sql {
         disconnect.executeUpdate();
     }
 
-    public static synchronized void completeDefeatReward(String name, String uuid, String action) throws SQLException {
+    /** True when the reward was recorded now, false when the player already had it. */
+    public static synchronized boolean completeDefeatReward(String name, String uuid, String action) throws SQLException {
         ensureReady();
         String column = switch (action) {
             case "desert" -> "DesertDefeated";
@@ -616,15 +617,17 @@ public class sql {
         };
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
+        boolean recorded;
         try {
             ensureRow(name, uuid);
             try (PreparedStatement update = connection.prepareStatement(
                     "UPDATE " + TABLE_NAME + " SET SoulboundMax=GREATEST(0,IFNULL(SoulboundMax,0)+1), "
                             + column + "=TRUE WHERE uuid=? AND IFNULL(" + column + ",FALSE)=FALSE")) {
                 update.setString(1, uuid);
-                update.executeUpdate();
+                recorded = update.executeUpdate() > 0;
             }
             connection.commit();
+            return recorded;
         } catch (SQLException | RuntimeException failure) {
             try { connection.rollback(); } catch (SQLException rollbackFailure) { failure.addSuppressed(rollbackFailure); }
             throw failure;

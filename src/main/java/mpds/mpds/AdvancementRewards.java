@@ -86,13 +86,16 @@ public final class AdvancementRewards {
                         sql.completeBranch(name, uuid, branch.branch());
                     }
                     case Boss boss -> {
-                        sql.completeDefeatReward(name, uuid, boss.action());
+                        boolean recorded = sql.completeDefeatReward(name, uuid, boss.action());
                         server.execute(() -> {
                             ServerPlayer online = server.getPlayerList().getPlayer(id);
                             if (online != null) {
                                 online.addTag(boss.tag());
                             }
                         });
+                        if (recorded) {
+                            mpds.mpds.api.BossRewards.announce(server, id, boss.action());
+                        }
                     }
                 }
                 MPDS.LOGGER.info("Recorded the {} reward for {}", advancement, name);
